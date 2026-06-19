@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Sora:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Space Grotesk', system-ui, sans-serif;
+  --font-heading: 'Sora', system-ui, sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #000000; /* Pure black */
+  color: #ffffff; /* Pure white */
+}
+
+/* OMNY High Contrast Outline styles */
+.omny-border {
+  border: 2px solid #ffffff;
+}
+
+.omny-border-thin {
+  border: 1px solid #ffffff;
+}
+
+.omny-card {
+  border: 2px solid #ffffff;
+  border-radius: 12px;
+  background-color: #000000;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.omny-card:hover {
+  background-color: #121212;
+  transform: translateY(-2px);
+}
+
+.omny-btn {
+  border: 2px solid #ffffff;
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: #000000;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.omny-btn:hover {
+  background-color: #000000;
+  color: #ffffff;
+}
+
+.omny-btn-outline {
+  border: 2px solid #ffffff;
+  border-radius: 8px;
+  background-color: #000000;
+  color: #ffffff;
+  font-family: var(--font-heading);
+  font-weight: 700;
+  text-transform: uppercase;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.omny-btn-outline:hover {
+  background-color: #ffffff;
+  color: #000000;
+}
+
+.omny-input {
+  border: 2px solid #ffffff;
+  border-radius: 8px;
+  background-color: #000000;
+  color: #ffffff;
+  font-family: var(--font-sans);
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.omny-input:focus {
+  background-color: #121212;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.2);
+}
+
+/* Double lined text for logo styling */
+.double-lined-text {
+  font-family: var(--font-heading);
+  font-weight: 800;
+  letter-spacing: -0.05em;
+  text-transform: uppercase;
+  text-shadow: 
+    -1px -1px 0 #fff,  
+     1px -1px 0 #fff,
+    -1px  1px 0 #fff,
+     1px  1px 0 #fff;
+  color: #000;
+}
+
+/* Custom barcode styling */
+.barcode-line {
+  background-color: #ffffff;
+}
+
+/* Scrollbar customizations */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #000000;
+}
+::-webkit-scrollbar-thumb {
+  background: #ffffff;
+  border-radius: 3px;
+}

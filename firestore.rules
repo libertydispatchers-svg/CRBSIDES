@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Drivers collection
+    match /drivers/{driverId} {
+      // Anyone can submit a driver application (create)
+      allow create: if true;
+      // Allow read and update for local operations (Admin Queue and driver updates)
+      allow read, update: if true;
+      allow delete: if false;
+    }
+
+    // Orders collection
+    match /orders/{orderId} {
+      // Orders are fetched in real-time by drivers and created by webhooks
+      allow read, create: if true;
+      // Approved drivers can update orders to claim them
+      allow update: if true;
+      allow delete: if false;
+    }
+
+    // Finance collection
+    match /finance/{financeId} {
+      // Finance records are managed by cloud functions and read by admins
+      allow read, write: if true;
+    }
+  }
+}
