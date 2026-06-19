@@ -7,6 +7,7 @@
     "frontend:build": "cd frontend && npm run build",
     "frontend:dev": "cd frontend && npm run dev",
     "functions:install": "cd functions && npm install",
+    "build": "cd frontend && npm install && npm run build",
     "emulators": "export PATH=\"/Users/STUDIO/node-v22/bin:$PATH\" && npx -y firebase-tools@latest emulators:start",
     "dev": "export PATH=\"/Users/STUDIO/node-v22/bin:$PATH\" && npm run frontend:build && npm run emulators"
   },
