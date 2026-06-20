@@ -642,6 +642,12 @@ app.patch("/api/vendor-applications/:id", async (req, res) => {
   const app = await getDocument("vendorApplications", req.params.id);
   if (app) {
     const updated = await updateDocument("vendorApplications", req.params.id, req.body);
+    
+    if (app.status !== "approved" && req.body.status === "approved") {
+      console.log(`[Resend] Vendor application approved. Sending welcome email to ${app.email}`);
+      await sendVendorWelcomeEmail(app.email, app.name);
+    }
+    
     res.json(updated);
   } else {
     res.status(404).json({ error: "Application not found" });
@@ -1056,6 +1062,22 @@ async function sendOrderReceiptEmail(email, name, orderId, vendorName, total, tr
   return sendEmail({ to: email, subject: `CURBSIDES Order Receipt (${orderId})`, html });
 }
 
+async function sendVendorWelcomeEmail(email, name) {
+  const html = `
+    <div style="background-color: #000; color: #fff; padding: 30px; font-family: sans-serif; border: 2px solid #fff; border-radius: 12px; max-width: 500px; margin: 0 auto;">
+      <h1 style="font-size: 24px; text-transform: uppercase; border-bottom: 2px solid #fff; padding-bottom: 15px; margin-top: 0;">CURBSIDES Vendor Approved</h1>
+      <p style="font-size: 14px; color: #a0aec0;">Hello ${name},</p>
+      <p style="font-size: 14px; color: #a0aec0;">Congratulations! Your food truck profile has been approved by the Curbsides administration.</p>
+      <p style="font-size: 14px; color: #a0aec0;">You can now log into your Vendor Workspace to update your GPS coordinates, edit menu items, and start accepting live delivery orders.</p>
+      <div style="text-align: center; margin: 25px 0;">
+        <a href="http://localhost:5001" style="background-color: #fff; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; text-transform: uppercase; display: inline-block;">Go to Vendor Workspace</a>
+      </div>
+      <p style="font-size: 11px; color: #718096; border-top: 1px solid #222; padding-top: 15px; margin-bottom: 0;">This is an automated vendor fleet activation notification.</p>
+    </div>
+  `;
+  return sendEmail({ to: email, subject: "CURBSIDES Food Truck Onboarding Approval", html });
+}
+
 app.post("/api/auth/register", async (req, res) => {
   const { email, password, name, role } = req.body;
   if (!email || !password || !name || !role) {
@@ -1085,7 +1107,7 @@ app.post("/api/auth/register", async (req, res) => {
   // If role is vendor, auto-link to a simulated vendor ID
   if (role === "vendor") {
     newUser.associatedId = "vendor-" + Date.now();
-    // Auto-create vendor application as approved
+    // Auto-create vendor application as pending (needs staff approval)
     const vendorAppId = "v-app-" + Date.now();
     await addDocument("vendorApplications", vendorAppId, {
       id: vendorAppId,
@@ -1094,7 +1116,7 @@ app.post("/api/auth/register", async (req, res) => {
       phone: "555-0155",
       foodType: "Street Food",
       borough: "Manhattan",
-      status: "approved"
+      status: "pending"
     });
   }
 
@@ -1206,6 +1228,17 @@ app.post("/api/auth/login", async (req, res) => {
       message: "Email address is not verified. A new code has been sent.",
       email: userDoc.email
     });
+  }
+
+  if (userDoc.role === "vendor") {
+    const apps = await getCollection("vendorApplications");
+    const appDoc = apps.find(a => a.email?.toLowerCase() === email.toLowerCase());
+    if (appDoc && appDoc.status !== "approved") {
+      return res.status(403).json({
+        error: "unapproved_vendor",
+        message: "Your vendor account is pending approval by the Curbsides transit administration."
+      });
+    }
   }
 
   res.json({

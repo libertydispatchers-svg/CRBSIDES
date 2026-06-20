@@ -911,12 +911,42 @@ export default function App() {
 
   // Handle Vendor Approval and Sync to Shopify Product Catalog
   const handleApproveVendor = async (app) => {
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+
+    // Persist approval to database
+    try {
+      await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' })
+      });
+    } catch (err) {
+      console.error("Failed to persist vendor application approval:", err);
+    }
+
     // Update application status to approved
     setVendorApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: 'approved' } : a));
-    
+
+    // Automatically add to local vendors list to make it active in search directories
+    setVendors(prev => {
+      if (prev.some(v => v.email?.toLowerCase() === app.email?.toLowerCase())) {
+        return prev;
+      }
+      return [...prev, {
+        id: 'vendor-' + Date.now(),
+        name: app.name,
+        email: app.email,
+        borough: app.borough || 'Manhattan, NYC',
+        isOpen: true,
+        rating: 5.0,
+        tags: ['Approved', 'Street Food'],
+        items: []
+      }];
+    });
+
     const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token');
     const shopifyConfig = localStorage.getItem('curbsides_shopify_config');
-    
+
     let shopDomain = "";
     if (shopifyConfig) {
       try {
