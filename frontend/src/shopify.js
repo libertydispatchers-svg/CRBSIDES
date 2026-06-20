@@ -189,8 +189,14 @@ function getMockVendors() {
       name: "Korean BBQ Taco Truck",
       borough: "Midtown, NYC",
       isOpen: true,
-      rating: 4.9,
+      rating: 4.8,
+      logo: "https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=150&auto=format&fit=crop&q=60",
       tags: ["Korean", "Tacos", "BBQ"],
+      reviews: [
+        { id: "rev-k-1", name: "David K.", rating: 5, comment: "Amazing Bulgogi BBQ! Best taco truck in midtown. The kimchi salsa is out of this world.", date: "2026-06-18" },
+        { id: "rev-k-2", name: "Elena R.", rating: 4, comment: "Delicious tacos, but the line gets quite long at lunch time. Get there early!", date: "2026-06-17" },
+        { id: "rev-k-3", name: "Marcus L.", rating: 5, comment: "Kimchi fries are absolute perfection. Very fast checkout using OMNY tap.", date: "2026-06-15" }
+      ],
       items: [
         {
           id: "mock-1",
@@ -220,8 +226,13 @@ function getMockVendors() {
       name: "Empanada Guy",
       borough: "Lower East Side",
       isOpen: true,
-      rating: 4.8,
+      rating: 4.7,
+      logo: "https://images.unsplash.com/photo-1544025162-d76694265947?w=150&auto=format&fit=crop&q=60",
       tags: ["Latin", "Empanadas", "Street Food"],
+      reviews: [
+        { id: "rev-e-1", name: "Sofía M.", rating: 5, comment: "The chipotle chicken empanada is phenomenal. Crust is super flaky and hot.", date: "2026-06-19" },
+        { id: "rev-e-2", name: "Jordan P.", rating: 4, comment: "Great budget street food. Grab a beef empanada and guava for dessert.", date: "2026-06-16" }
+      ],
       items: [
         {
           id: "mock-4",
@@ -251,8 +262,13 @@ function getMockVendors() {
       name: "Ramen on Wheels",
       borough: "Williamsburg",
       isOpen: true,
-      rating: 4.7,
+      rating: 4.5,
+      logo: "https://images.unsplash.com/photo-1569718212165-3a8278d5f624?w=150&auto=format&fit=crop&q=60",
       tags: ["Japanese", "Ramen", "Noodles"],
+      reviews: [
+        { id: "rev-r-1", name: "Kenji T.", rating: 4, comment: "Surprisingly good broth for a food truck. Tonkotsu is super rich and savory.", date: "2026-06-14" },
+        { id: "rev-r-2", name: "Yuki S.", rating: 5, comment: "Spicy miso ramen has the perfect heat! Perfect for cool nights in Brooklyn.", date: "2026-06-12" }
+      ],
       items: [
         {
           id: "mock-7",
@@ -276,7 +292,13 @@ function getMockVendors() {
       borough: "Harlem",
       isOpen: true,
       rating: 4.9,
+      logo: "https://images.unsplash.com/photo-1626700051175-6518c4793f4f?w=150&auto=format&fit=crop&q=60",
       tags: ["Caribbean", "Jerk Chicken", "Spicy"],
+      reviews: [
+        { id: "rev-j-1", name: "Tyrone W.", rating: 5, comment: "Best wood-smoked jerk chicken in uptown. Generous portions and very spicy!", date: "2026-06-18" },
+        { id: "rev-j-2", name: "Candice B.", rating: 5, comment: "Outstanding jerk pork and plantains. It hits the spot every single time.", date: "2026-06-17" },
+        { id: "rev-j-3", name: "Liam O.", rating: 4, comment: "Extremely tasty, but prepare to wait in line. Totally worth it though.", date: "2026-06-15" }
+      ],
       items: [
         {
           id: "mock-9",

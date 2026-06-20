@@ -108,6 +108,13 @@ export default function App() {
   const [profileBorough, setProfileBorough] = useState('Manhattan');
   const [profileTags, setProfileTags] = useState('');
   const [profileIsOpen, setProfileIsOpen] = useState(true);
+  const [profileLogo, setProfileLogo] = useState('');
+
+  // Customer Reviews Form State
+  const [vendorModalTab, setVendorModalTab] = useState('menu'); // 'menu' | 'reviews'
+  const [newReviewName, setNewReviewName] = useState('');
+  const [newReviewRating, setNewReviewRating] = useState(5);
+  const [newReviewComment, setNewReviewComment] = useState('');
 
   // Synchronize profile forms safely
   useEffect(() => {
@@ -116,6 +123,7 @@ export default function App() {
       setProfileBorough(vendorUser.borough.replace(', NYC', '').trim());
       setProfileTags((vendorUser.tags || []).join(', '));
       setProfileIsOpen(vendorUser.isOpen);
+      setProfileLogo(vendorUser.logo || '');
     }
   }, [vendorActiveSubTab, vendorUser]);
 
@@ -213,6 +221,10 @@ export default function App() {
     if (activeTab === 'map' || window.innerWidth >= 1024) {
       // Small timeout to let container render
       setTimeout(() => {
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.invalidateSize();
+        }
+
         if (mapRef.current && !mapInstanceRef.current && window.L) {
           const map = window.L.map(mapRef.current, {
             zoomControl: false,
@@ -513,6 +525,9 @@ export default function App() {
         isOpen: true,
         rating: 5.0,
         tags: ['New', 'Street Food'],
+        reviews: [
+          { id: 'rev-n-1', name: 'Curbsides Staff', rating: 5, comment: 'Welcome to your new food truck store! Customize your profile, manage menus, and watch customer reviews populate here.', date: new Date().toISOString().split('T')[0] }
+        ],
         items: [
           {
             id: 'mock-new-1',
@@ -636,7 +651,8 @@ export default function App() {
           name: profileName,
           borough: profileBorough + ', NYC',
           tags: profileTags.split(',').map(t => t.trim()).filter(Boolean),
-          isOpen: profileIsOpen
+          isOpen: profileIsOpen,
+          logo: profileLogo
         };
         setVendorUser(updated);
         return updated;
@@ -646,6 +662,46 @@ export default function App() {
 
     setVendors(updatedVendors);
     alert('Store Profile updated successfully!');
+  };
+
+  // Submit Customer Review
+  const handleSubmitReview = (e) => {
+    e.preventDefault();
+    if (!newReviewName || !newReviewComment || !selectedVendor) return;
+
+    const newReview = {
+      id: 'rev-' + Date.now(),
+      name: newReviewName,
+      rating: parseInt(newReviewRating),
+      comment: newReviewComment,
+      date: new Date().toISOString().split('T')[0]
+    };
+
+    const updatedVendors = vendors.map(v => {
+      if (v.id === selectedVendor.id) {
+        const existingReviews = v.reviews || [];
+        const updatedReviews = [newReview, ...existingReviews];
+        const newAverage = updatedReviews.reduce((sum, r) => sum + r.rating, 0) / updatedReviews.length;
+        
+        const updatedVendor = {
+          ...v,
+          reviews: updatedReviews,
+          rating: parseFloat(newAverage.toFixed(1))
+        };
+        
+        // Sync selectedVendor so the UI updates instantly
+        setTimeout(() => setSelectedVendor(updatedVendor), 0);
+        return updatedVendor;
+      }
+      return v;
+    });
+
+    setVendors(updatedVendors);
+    
+    // Reset form
+    setNewReviewName('');
+    setNewReviewRating(5);
+    setNewReviewComment('');
   };
 
   return (
@@ -1364,6 +1420,37 @@ export default function App() {
                     </div>
 
                     <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                      {/* Logo Uploader */}
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Store Logo</label>
+                        <div className="border-2 border-dashed border-white/20 rounded-xl p-4 text-center hover:border-white transition-all cursor-pointer relative bg-zinc-950">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={(e) => {
+                              const file = e.target.files[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onloadend = () => setProfileLogo(reader.result);
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                          />
+                          {profileLogo ? (
+                            <div className="space-y-2 flex flex-col items-center">
+                              <img src={profileLogo} alt="Preview" className="w-16 h-16 object-cover rounded-full border-2 border-white" />
+                              <span className="text-[9px] text-emerald-400 uppercase font-bold">Logo Loaded</span>
+                            </div>
+                          ) : (
+                            <div className="space-y-1 py-2">
+                              <Upload className="w-4 h-4 mx-auto text-slate-400" />
+                              <span className="text-[10px] text-white font-bold uppercase tracking-wider block">Upload Logo</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
                       <div>
                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Name</label>
                         <input
@@ -1838,25 +1925,40 @@ export default function App() {
                   filteredVendors.map(vendor => (
                     <div 
                       key={vendor.id} 
-                      onClick={() => setSelectedVendor(vendor)}
+                      onClick={() => {
+                        setSelectedVendor(vendor);
+                        setVendorModalTab('menu');
+                      }}
                       className="p-6 flex justify-between items-center hover:bg-zinc-950 transition-colors cursor-pointer"
                     >
-                      <div className="space-y-1.5 flex-1">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-xl font-bold uppercase text-white font-heading">{vendor.name}</h3>
-                          {vendor.isOpen && (
-                            <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping"></span>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-1.5 text-xs text-slate-400 font-semibold">
-                          <MapPin className="w-3.5 h-3.5 text-white" />
-                          {vendor.borough}
+                      <div className="flex items-center gap-4 flex-1 min-w-0">
+                        {vendor.logo ? (
+                          <div className="w-12 h-12 rounded-full border-2 border-white overflow-hidden bg-black flex-shrink-0">
+                            <img src={vendor.logo} alt={vendor.name} className="w-full h-full object-cover" />
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 rounded-full border-2 border-white flex items-center justify-center bg-black text-white font-black text-lg flex-shrink-0">
+                            {vendor.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="space-y-1 min-w-0">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-xl font-bold uppercase text-white font-heading truncate">{vendor.name}</h3>
+                            {vendor.isOpen && (
+                              <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping flex-shrink-0"></span>
+                            )}
+                          </div>
+                          
+                          <div className="flex items-center gap-1.5 text-xs text-slate-400 font-semibold">
+                            <MapPin className="w-3.5 h-3.5 text-white" />
+                            <span className="truncate">{vendor.borough}</span>
+                            <span className="text-amber-500 font-bold ml-1">{vendor.rating ? `${vendor.rating.toFixed(1)} ★` : '5.0 ★'}</span>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3">
-                        <span className="text-[10px] border border-white/30 px-2 py-0.5 rounded text-slate-400 uppercase font-bold tracking-widest">
+                      <div className="flex items-center gap-3 ml-4 flex-shrink-0">
+                        <span className="text-[10px] border border-white/30 px-2 py-0.5 rounded text-slate-400 uppercase font-bold tracking-widest hidden sm:inline-block">
                           {vendor.items.length} Items
                         </span>
                         <div className="w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center hover:bg-white hover:text-black transition-all">
@@ -1919,7 +2021,7 @@ export default function App() {
             </div>
 
             {/* Right Section: Map / Leaflet view */}
-            <div className={`lg:col-span-5 relative flex-col bg-black overflow-hidden ${
+            <div className={`lg:col-span-5 relative flex flex-col bg-black overflow-hidden h-[calc(100vh-120px)] lg:h-full w-full ${
               activeTab === 'map' ? 'flex' : 'hidden lg:flex'
             }`}>
               {/* Map Heading Overlay */}
@@ -1932,7 +2034,7 @@ export default function App() {
               </div>
 
               {/* Leaflet container */}
-              <div ref={mapRef} className="w-full h-full min-h-[400px] lg:h-full z-0 bg-neutral-950"></div>
+              <div ref={mapRef} className="w-full h-full z-0 bg-neutral-950"></div>
             </div>
           </>
         )}
@@ -1966,12 +2068,23 @@ export default function App() {
             
             {/* Modal Header */}
             <div className="p-6 border-b-2 border-white flex justify-between items-start">
-              <div>
-                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
-                  Menu
-                </span>
-                <h2 className="text-2xl font-bold uppercase text-white font-heading mt-2">{selectedVendor.name}</h2>
-                <p className="text-xs text-slate-400 mt-1">{selectedVendor.borough} &bull; Rating: {selectedVendor.rating} ★</p>
+              <div className="flex items-center gap-4">
+                {selectedVendor.logo ? (
+                  <div className="w-16 h-16 rounded-full border-2 border-white overflow-hidden bg-black flex-shrink-0">
+                    <img src={selectedVendor.logo} alt={selectedVendor.name} className="w-full h-full object-cover" />
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center bg-black text-white font-black text-2xl flex-shrink-0">
+                    {selectedVendor.name.charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <div>
+                  <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                    Menu
+                  </span>
+                  <h2 className="text-2xl font-bold uppercase text-white font-heading mt-1">{selectedVendor.name}</h2>
+                  <p className="text-xs text-slate-400 mt-0.5">{selectedVendor.borough} &bull; Rating: {selectedVendor.rating ? selectedVendor.rating.toFixed(1) : '5.0'} ★ ({selectedVendor.reviews ? selectedVendor.reviews.length : 0} reviews)</p>
+                </div>
               </div>
 
               <button 
@@ -1982,57 +2095,189 @@ export default function App() {
               </button>
             </div>
 
-            {/* Menu Items */}
-            <div className="flex-1 overflow-y-auto p-6 divide-y divide-white/20">
-              {selectedVendor.items.map(item => {
-                const cartQty = cart.find(i => i.id === item.id)?.quantity || 0;
-                return (
-                  <div key={item.id} className="py-4 first:pt-0 last:pb-0 flex gap-4 justify-between items-center">
-                    {item.image && (
-                      <div className="w-16 h-16 sm:w-20 sm:h-20 border-2 border-white rounded-xl overflow-hidden flex-shrink-0 bg-zinc-950 relative">
-                        <img 
-                          src={item.image} 
-                          alt={item.name} 
-                          className="w-full h-full object-cover" 
-                        />
-                      </div>
-                    )}
-                    <div className="space-y-1 flex-1 pr-4 min-w-0">
-                      <h4 className="font-bold text-white uppercase text-base truncate">{item.name}</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed line-clamp-2 sm:line-clamp-none">{item.description}</p>
-                      <span className="text-sm font-bold text-white block pt-1">${item.price.toFixed(2)}</span>
-                    </div>
+            {/* Modal Subtabs */}
+            <div className="flex border-b-2 border-white bg-black">
+              <button
+                onClick={() => setVendorModalTab('menu')}
+                className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider border-r border-white/20 transition-all font-heading ${
+                  vendorModalTab === 'menu' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Dishes Menu
+              </button>
+              <button
+                onClick={() => setVendorModalTab('reviews')}
+                className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-all font-heading ${
+                  vendorModalTab === 'reviews' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Reviews & Ratings ({selectedVendor.reviews ? selectedVendor.reviews.length : 0})
+              </button>
+            </div>
 
-                    <div className="flex items-center gap-2">
-                      {cartQty > 0 ? (
-                        <div className="flex items-center gap-2 border-2 border-white rounded-lg p-0.5 bg-black">
-                          <button 
-                            onClick={() => updateQuantity(item.id, -1)}
-                            className="p-1 hover:bg-white hover:text-black rounded transition-all cursor-pointer"
-                          >
-                            <Minus className="w-3.5 h-3.5" />
-                          </button>
-                          <span className="font-bold text-xs px-2 text-white">{cartQty}</span>
-                          <button 
-                            onClick={() => addToCart(item, selectedVendor.name)}
-                            className="p-1 hover:bg-white hover:text-black rounded transition-all cursor-pointer"
-                          >
-                            <Plus className="w-3.5 h-3.5" />
-                          </button>
+            {/* Subtab content: Menu */}
+            {vendorModalTab === 'menu' && (
+              <div className="flex-1 overflow-y-auto p-6 divide-y divide-white/20">
+                {selectedVendor.items.map(item => {
+                  const cartQty = cart.find(i => i.id === item.id)?.quantity || 0;
+                  return (
+                    <div key={item.id} className="py-4 first:pt-0 last:pb-0 flex gap-4 justify-between items-center">
+                      {item.image && (
+                        <div className="w-16 h-16 sm:w-20 sm:h-20 border-2 border-white rounded-xl overflow-hidden flex-shrink-0 bg-zinc-950 relative">
+                          <img 
+                            src={item.image} 
+                            alt={item.name} 
+                            className="w-full h-full object-cover" 
+                          />
                         </div>
-                      ) : (
-                        <button
-                          onClick={() => addToCart(item, selectedVendor.name)}
-                          className="px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer"
-                        >
-                          Add
-                        </button>
                       )}
+                      <div className="space-y-1 flex-1 pr-4 min-w-0">
+                        <h4 className="font-bold text-white uppercase text-base truncate">{item.name}</h4>
+                        <p className="text-xs text-slate-400 leading-relaxed line-clamp-2 sm:line-clamp-none">{item.description}</p>
+                        <span className="text-sm font-bold text-white block pt-1">${item.price.toFixed(2)}</span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {cartQty > 0 ? (
+                          <div className="flex items-center gap-2 border-2 border-white rounded-lg p-0.5 bg-black">
+                            <button 
+                              onClick={() => updateQuantity(item.id, -1)}
+                              className="p-1 hover:bg-white hover:text-black rounded transition-all cursor-pointer"
+                            >
+                              <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <span className="font-bold text-xs px-2 text-white">{cartQty}</span>
+                            <button 
+                              onClick={() => addToCart(item, selectedVendor.name)}
+                              className="p-1 hover:bg-white hover:text-black rounded transition-all cursor-pointer"
+                            >
+                              <Plus className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => addToCart(item, selectedVendor.name)}
+                            className="px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer"
+                          >
+                            Add
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Subtab content: Reviews */}
+            {vendorModalTab === 'reviews' && (
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {/* Review Summary Stats */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-center border-2 border-white p-4 rounded-xl bg-zinc-950/40">
+                  <div className="text-center sm:border-r border-white/20 sm:pr-4 py-2">
+                    <div className="text-3xl font-black text-white font-heading">{selectedVendor.rating ? selectedVendor.rating.toFixed(1) : '5.0'}</div>
+                    <div className="text-amber-500 font-extrabold text-sm mt-1">
+                      {"★".repeat(Math.round(selectedVendor.rating || 5)) + "☆".repeat(5 - Math.round(selectedVendor.rating || 5))}
+                    </div>
+                    <div className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mt-1.5">
+                      {selectedVendor.reviews ? selectedVendor.reviews.length : 0} reviews
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                  
+                  <div className="col-span-2 space-y-2">
+                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Street Review Distribution</h4>
+                    {[5, 4, 3, 2, 1].map(stars => {
+                      const count = (selectedVendor.reviews || []).filter(r => r.rating === stars).length;
+                      const percentage = (selectedVendor.reviews || []).length > 0 
+                        ? (count / (selectedVendor.reviews || []).length) * 100 
+                        : 0;
+                      return (
+                        <div key={stars} className="flex items-center gap-2 text-[10px] font-mono text-slate-300">
+                          <span className="w-8 font-bold">{stars} Star</span>
+                          <div className="flex-1 h-2 border border-white/25 bg-black rounded-sm overflow-hidden">
+                            <div className="h-full bg-white" style={{ width: `${percentage}%` }}></div>
+                          </div>
+                          <span className="w-6 text-right font-bold">{count}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Write a Review Form */}
+                <form onSubmit={handleSubmitReview} className="border-2 border-white p-4 rounded-xl bg-zinc-950/40 space-y-4">
+                  <h4 className="text-xs font-bold uppercase text-white tracking-widest border-b border-white/10 pb-2">Leave a Customer Review</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Your Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. John D."
+                        value={newReviewName}
+                        onChange={(e) => setNewReviewName(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Rating</label>
+                      <select
+                        value={newReviewRating}
+                        onChange={(e) => setNewReviewRating(parseInt(e.target.value))}
+                        className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white"
+                      >
+                        <option value="5">5 Stars ★★★★★</option>
+                        <option value="4">4 Stars ★★★★☆</option>
+                        <option value="3">3 Stars ★★★☆☆</option>
+                        <option value="2">2 Stars ★★☆☆☆</option>
+                        <option value="1">1 Star ★☆☆☆☆</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Comment / Experience</label>
+                    <textarea
+                      required
+                      placeholder="How was the food, service, and wait time? Tap or type here..."
+                      value={newReviewComment}
+                      onChange={(e) => setNewReviewComment(e.target.value)}
+                      className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white h-20"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="w-full py-2.5 border-2 border-white rounded-lg bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all font-heading"
+                  >
+                    Submit Review Card
+                  </button>
+                </form>
+
+                {/* Review List */}
+                <div className="space-y-4">
+                  <h4 className="text-xs font-bold uppercase text-slate-400 tracking-wider">Submitted Reviews</h4>
+                  {(!selectedVendor.reviews || selectedVendor.reviews.length === 0) ? (
+                    <p className="text-xs text-slate-500 uppercase tracking-wide text-center py-6">No customer reviews yet. Be the first to write one!</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {selectedVendor.reviews.map(rev => (
+                        <div key={rev.id} className="border border-white/10 p-4 rounded-xl bg-zinc-950/20 space-y-2">
+                          <div className="flex justify-between items-start flex-wrap gap-2">
+                            <div>
+                              <span className="font-bold text-white uppercase text-xs block">{rev.name}</span>
+                              <span className="text-amber-500 font-extrabold text-[10px] block">
+                                {"★".repeat(rev.rating) + "☆".repeat(5 - rev.rating)}
+                              </span>
+                            </div>
+                            <span className="text-[9px] font-mono text-slate-500">{rev.date}</span>
+                          </div>
+                          <p className="text-xs text-slate-300 leading-relaxed font-sans">{rev.comment}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Modal footer */}
             <div className="p-6 border-t-2 border-white flex justify-between items-center bg-black">
