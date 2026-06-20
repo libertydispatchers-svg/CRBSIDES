@@ -12,6 +12,10 @@
       "destination": "/api/index.js"
     },
     {
+      "source": "/webhooks/shopify-order",
+      "destination": "/api/index.js"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

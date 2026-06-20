@@ -171,7 +171,7 @@ app.get("/api/finance", (req, res) => {
 });
 
 // Shopify Webhook Ingestion Endpoint
-app.post("/shopify-order-created", async (req, res) => {
+app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res) => {
   try {
     const payload = req.body;
     const orderId = String(payload.id || payload.order_number || `shopify-${Date.now()}`);
