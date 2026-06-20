@@ -116,6 +116,40 @@ export default function App() {
   const [newReviewRating, setNewReviewRating] = useState(5);
   const [newReviewComment, setNewReviewComment] = useState('');
 
+  // Customer Account & Profile States
+  const [customerUser, setCustomerUser] = useState(null);
+  const [customerLoginEmail, setCustomerLoginEmail] = useState('');
+  const [customerLoginPassword, setCustomerLoginPassword] = useState('');
+  const [customerRegisterName, setCustomerRegisterName] = useState('');
+  const [customerRegisterEmail, setCustomerRegisterEmail] = useState('');
+  const [customerRegisterPhone, setCustomerRegisterPhone] = useState('');
+  const [customerRegisterPassword, setCustomerRegisterPassword] = useState('');
+  const [customerAuthError, setCustomerAuthError] = useState('');
+  
+  // Customer Wallet (Cards)
+  const [customerCards, setCustomerCards] = useState([
+    { id: 'card-1', brand: 'Visa', last4: '4242', exp: '12/28' }
+  ]);
+  const [isAddingCard, setIsAddingCard] = useState(false);
+  const [newCardNum, setNewCardNum] = useState('');
+  const [newCardExpiry, setNewCardExpiry] = useState('');
+  const [newCardCvc, setNewCardCvc] = useState('');
+  
+  // Simulated Live Support Chat State
+  const [supportMessages, setSupportMessages] = useState([
+    { id: 'm-1', sender: 'admin', text: 'Welcome to CURBSIDES Live Support! How can we assist you today?', timestamp: new Date(Date.now() - 3600000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+  ]);
+  const [supportInput, setSupportInput] = useState('');
+  const [customerActiveSubTab, setCustomerActiveSubTab] = useState('profile'); // 'profile' | 'orders' | 'chat'
+
+  // Upgrade requests (for multi-truck)
+  const [upgradeRequests, setUpgradeRequests] = useState([
+    { id: 'up-1', vendorId: 'vendor-ramen-wheels', vendorName: 'Ramen on Wheels', requestedTrucks: 3, status: 'pending', timestamp: '2026-06-19T14:30:00Z' }
+  ]);
+
+  // GPS address publishing state
+  const [gpsAddressText, setGpsAddressText] = useState('');
+
   // Synchronize profile forms safely
   useEffect(() => {
     if (vendorUser) {
@@ -150,7 +184,7 @@ export default function App() {
     async function loadData() {
       setLoading(true);
       const data = await fetchVendorsAndProducts();
-      // Map mock emails for easy vendor login simulation
+      // Map mock emails and coordinates for easy vendor login simulation
       const mappedData = data.map(v => ({
         ...v,
         email: v.email || (
@@ -158,6 +192,13 @@ export default function App() {
           v.id === 'vendor-empanada-guy' ? 'empanadas@guy.com' :
           v.id === 'vendor-halal-kings' ? 'kings@halalcart.com' :
           `${v.name.toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`
+        ),
+        coordinates: v.coordinates || (
+          v.id === 'vendor-korean-taco' ? [40.7580, -73.9855] :
+          v.id === 'vendor-empanada-guy' ? [40.7150, -73.9843] :
+          v.id === 'vendor-ramen-wheels' ? [40.7081, -73.9571] :
+          v.id === 'vendor-jerk-chicken' ? [40.8116, -73.9465] :
+          [40.7128 + (Math.random() - 0.5) * 0.08, -74.0060 + (Math.random() - 0.5) * 0.08]
         )
       }));
       setVendors(mappedData);
@@ -256,7 +297,7 @@ export default function App() {
           };
 
           vendors.forEach(v => {
-            const pos = coords[v.id] || [40.7128 + (Math.random() - 0.5) * 0.1, -74.0060 + (Math.random() - 0.5) * 0.1];
+            const pos = v.coordinates || coords[v.id] || [40.7128 + (Math.random() - 0.5) * 0.1, -74.0060 + (Math.random() - 0.5) * 0.1];
             
             // Custom high contrast white marker icon
             const customIcon = window.L.divIcon({
@@ -361,18 +402,19 @@ export default function App() {
   };
 
   // Search Order for Custom Customer Tracking
-  const handleSearchOrder = (e) => {
-    e.preventDefault();
+  const handleSearchOrder = (e, customId = null) => {
+    if (e) e.preventDefault();
     setTrackingError('');
     setSearchedOrder(null);
 
-    if (!trackingOrderId.trim()) {
+    const orderIdToSearch = customId || trackingOrderId;
+    if (!orderIdToSearch.trim()) {
       setTrackingError('Please enter a valid order number.');
       return;
     }
 
     const statuses = ['Processing Order', 'Vendor Preparing Food', 'Driver Assigned', 'On the Way', 'Delivered'];
-    const orderHash = trackingOrderId.length % 5;
+    const orderHash = orderIdToSearch.length % 5;
     const currentStatus = statuses[orderHash];
     const vendorMap = {
       0: 'Korean BBQ Taco Truck',
@@ -383,7 +425,7 @@ export default function App() {
     };
 
     setSearchedOrder({
-      id: trackingOrderId.trim(),
+      id: orderIdToSearch.trim(),
       status: currentStatus,
       vendor: vendorMap[orderHash],
       eta: 10 + orderHash * 5,
@@ -425,13 +467,13 @@ export default function App() {
 
   // Handle Vendor GPS Location Update
   const handleUpdateGps = () => {
-    setGpsStatus('Locating your food truck...');
-    setGpsCoords(null);
-
-    if (!selectedPortalVendorId) {
-      setGpsStatus('Please select your food truck name first.');
+    if (!vendorUser) {
+      setGpsStatus('Please sign in to your vendor dashboard first.');
       return;
     }
+    
+    setGpsStatus('Locating your food truck...');
+    setGpsCoords(null);
 
     if (!navigator.geolocation) {
       setGpsStatus('Geolocation is not supported by your browser.');
@@ -446,7 +488,16 @@ export default function App() {
         setGpsStatus('GPS Coordinates successfully sent to Supabase locations ledger!');
         
         // Dynamic map updates inside mock UI
-        console.log(`[Supabase] Updated vendor ${selectedPortalVendorId} location to: [${lat}, ${lon}]`);
+        setVendors(prev => prev.map(v => {
+          if (v.id === vendorUser.id) {
+            return {
+              ...v,
+              coordinates: [lat, lon]
+            };
+          }
+          return v;
+        }));
+        console.log(`[Supabase] Updated vendor ${vendorUser.id} location to: [${lat}, ${lon}]`);
       },
       (error) => {
         console.error("GPS Error:", error);
@@ -552,6 +603,119 @@ export default function App() {
     setVendorLoginPasscode('');
     setVendorLoginError('');
     setActiveTab('directory');
+  };
+
+  // Customer Authentication & Wallet Handlers
+  const handleCustomerSignup = (e) => {
+    e.preventDefault();
+    setCustomerAuthError('');
+    if (!customerRegisterName.trim() || !customerRegisterEmail.trim() || !customerRegisterPassword.trim()) {
+      setCustomerAuthError('All registration fields are required.');
+      return;
+    }
+    const newUser = {
+      name: customerRegisterName.trim().toUpperCase(),
+      email: customerRegisterEmail.trim(),
+      phone: customerRegisterPhone.trim() || '555-0199',
+      joinedDate: new Date().toLocaleDateString()
+    };
+    setCustomerUser(newUser);
+    // Clear registration fields
+    setCustomerRegisterName('');
+    setCustomerRegisterEmail('');
+    setCustomerRegisterPhone('');
+    setCustomerRegisterPassword('');
+  };
+
+  const handleCustomerLogin = (e) => {
+    e.preventDefault();
+    setCustomerAuthError('');
+    if (!customerLoginEmail.trim() || !customerLoginPassword.trim()) {
+      setCustomerAuthError('Please enter both email and password.');
+      return;
+    }
+    const loggedInUser = {
+      name: customerLoginEmail.split('@')[0].toUpperCase(),
+      email: customerLoginEmail.trim(),
+      phone: '555-0199',
+      joinedDate: '06/15/2026'
+    };
+    setCustomerUser(loggedInUser);
+    setCustomerLoginEmail('');
+    setCustomerLoginPassword('');
+  };
+
+  const handleCustomerLogout = () => {
+    setCustomerUser(null);
+    setCustomerActiveSubTab('profile');
+  };
+
+  const handleDeleteCustomerAccount = () => {
+    if (confirm("Are you sure you want to permanently delete your CURBSIDES customer account and card wallet? This action cannot be undone.")) {
+      setCustomerUser(null);
+      setCustomerCards([]);
+      setCustomerActiveSubTab('profile');
+    }
+  };
+
+  const handleAddCustomerCard = (e) => {
+    e.preventDefault();
+    if (!newCardNum.trim() || !newCardExpiry.trim() || !newCardCvc.trim()) {
+      alert("Please fill in all credit card details.");
+      return;
+    }
+    const cleanNum = newCardNum.replace(/\s+/g, '');
+    const last4 = cleanNum.substring(cleanNum.length - 4) || '4242';
+    const brand = cleanNum.startsWith('5') ? 'Mastercard' : cleanNum.startsWith('3') ? 'Amex' : 'Visa';
+    
+    const newCard = {
+      id: 'card-' + Date.now(),
+      brand,
+      last4,
+      exp: newCardExpiry.trim()
+    };
+    setCustomerCards([...customerCards, newCard]);
+    setIsAddingCard(false);
+    setNewCardNum('');
+    setNewCardExpiry('');
+    setNewCardCvc('');
+  };
+
+  const handleDeleteCustomerCard = (cardId) => {
+    setCustomerCards(customerCards.filter(c => c.id !== cardId));
+  };
+
+  const handleSendSupportMessage = (e) => {
+    e.preventDefault();
+    if (!supportInput.trim()) return;
+
+    const userMsg = {
+      id: 'msg-' + Date.now(),
+      sender: 'user',
+      text: supportInput.trim(),
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
+
+    setSupportMessages(prev => [...prev, userMsg]);
+    setSupportInput('');
+
+    // Simulate auto-reply from Admin
+    setTimeout(() => {
+      const replies = [
+        "We are currently reviewing your request and will update you shortly.",
+        "Your order status is active. Please track it on the Track Order page using your Order ID.",
+        "Thank you for contacting CURBSIDES. A support staff has been notified of your message.",
+        "All our courier dispatch slots are active. If you need refunds, they will be processed to your card wallet.",
+        "Our admin is online. We have forwarded your message directly to our dispatch dashboard."
+      ];
+      const randomReply = replies[Math.floor(Math.random() * replies.length)];
+      setSupportMessages(prev => [...prev, {
+        id: 'msg-admin-' + Date.now(),
+        sender: 'admin',
+        text: randomReply,
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      }]);
+    }, 1500);
   };
 
   // Add a new menu item to the vendor
@@ -724,59 +888,15 @@ export default function App() {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap sm:gap-3">
+          {/* Public customer buttons */}
           <button
-            onClick={() => setActiveTab(activeTab === 'vendor-portal' ? 'directory' : 'vendor-portal')}
+            onClick={() => setActiveTab(activeTab === 'account' ? 'directory' : 'account')}
             className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-              activeTab === 'vendor-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+              activeTab === 'account' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
             }`}
           >
-            Vendor Portal
+            My Account
           </button>
-
-          {isStaffAuthenticated ? (
-            <>
-              <button
-                onClick={() => setActiveTab(activeTab === 'admin' ? 'directory' : 'admin')}
-                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-                  activeTab === 'admin' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                }`}
-              >
-                Admin Panel
-              </button>
-
-              <button
-                onClick={() => setActiveTab(activeTab === 'vendor-onboard' ? 'directory' : 'vendor-onboard')}
-                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-                  activeTab === 'vendor-onboard' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                }`}
-              >
-                Vendor Join
-              </button>
-
-              <button 
-                onClick={() => setIsConfigOpen(true)}
-                className="p-2 border-2 border-white rounded-lg hover:bg-white hover:text-black transition-all cursor-pointer"
-                title="Configure Shopify Backend"
-              >
-                <Settings className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={handleStaffLogout}
-                className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"
-                title="Lock Console / Log out staff"
-              >
-                Lock
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={() => setIsStaffOpen(true)}
-              className="px-3 py-1.5 border-2 border-zinc-700 rounded-lg text-xs font-bold uppercase bg-black text-zinc-400 hover:border-white hover:text-white transition-all cursor-pointer font-heading"
-            >
-              Admin Access
-            </button>
-          )}
 
           <button
             onClick={() => setActiveTab(activeTab === 'track' ? 'directory' : 'track')}
@@ -799,6 +919,54 @@ export default function App() {
               </span>
             )}
           </button>
+
+          {/* Gated staff buttons, only shown if staff passcode is unlocked */}
+          {isStaffAuthenticated && (
+            <div className="flex items-center gap-2 border-l border-white/20 pl-2 ml-1 flex-wrap gap-2">
+              <button
+                onClick={() => setActiveTab(activeTab === 'admin' ? 'directory' : 'admin')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'admin' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Admin Panel
+              </button>
+
+              <button
+                onClick={() => setActiveTab(activeTab === 'vendor-portal' ? 'directory' : 'vendor-portal')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'vendor-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Vendor Portal
+              </button>
+
+              <button
+                onClick={() => setActiveTab(activeTab === 'vendor-onboard' ? 'directory' : 'vendor-onboard')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'vendor-onboard' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Vendor Join
+              </button>
+
+              <button 
+                onClick={() => setIsConfigOpen(true)}
+                className="p-2 border-2 border-white rounded-lg hover:bg-white hover:text-black transition-all cursor-pointer text-white"
+                title="Configure Shopify Backend"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={handleStaffLogout}
+                className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"
+                title="Lock Console / Log out staff"
+              >
+                Lock
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -886,6 +1054,465 @@ export default function App() {
                   <Activity className="w-3.5 h-3.5 text-white animate-pulse" />
                   Secured via Shipday Dispatch API
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Customer Account Hub: Profile, Cards, Chat, Order tracking */}
+        {activeTab === 'account' && (
+          <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
+            {!customerUser ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto border-2 border-white bg-black rounded-2xl p-6 md:p-8 shadow-2xl relative">
+                {/* Column 1: Log In */}
+                <div className="space-y-6">
+                  <div>
+                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                      Customer Hub
+                    </span>
+                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Sign In</h2>
+                    <p className="text-xs text-slate-400 mt-1">Access your wallet, order tracking, and support center.</p>
+                  </div>
+
+                  {customerAuthError && (
+                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
+                      {customerAuthError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleCustomerLogin} className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="customer@example.com"
+                        value={customerLoginEmail}
+                        onChange={(e) => setCustomerLoginEmail(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        value={customerLoginPassword}
+                        onChange={(e) => setCustomerLoginPassword(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Login to Wallet
+                    </button>
+                  </form>
+                  
+                  <div className="pt-2 text-center border-t border-white/10">
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">Quick Demo Login</p>
+                    <button
+                      onClick={() => {
+                        setCustomerUser({
+                          name: 'ALICE SMITH',
+                          email: 'alice@example.com',
+                          phone: '555-0199',
+                          joinedDate: '06/15/2026'
+                        });
+                      }}
+                      className="mt-2 text-[10px] border border-zinc-800 bg-zinc-950 px-3 py-1 rounded text-zinc-300 hover:border-white transition-all uppercase font-semibold"
+                    >
+                      Demo Account: Alice
+                    </button>
+                  </div>
+                </div>
+
+                {/* Vertical Divider */}
+                <div className="hidden md:block w-[1px] bg-white/25 self-stretch"></div>
+
+                {/* Column 2: Sign Up */}
+                <div className="space-y-6">
+                  <div>
+                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                      New Account
+                    </span>
+                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Register</h2>
+                    <p className="text-xs text-slate-400 mt-1">Create an account to track deliveries and save credit cards.</p>
+                  </div>
+
+                  <form onSubmit={handleCustomerSignup} className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Alice Smith"
+                        value={customerRegisterName}
+                        onChange={(e) => setCustomerRegisterName(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="alice@example.com"
+                        value={customerRegisterEmail}
+                        onChange={(e) => setCustomerRegisterEmail(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
+                      <input
+                        type="tel"
+                        placeholder="555-0199"
+                        value={customerRegisterPhone}
+                        onChange={(e) => setCustomerRegisterPhone(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        value={customerRegisterPassword}
+                        onChange={(e) => setCustomerRegisterPassword(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Create Account
+                    </button>
+                  </form>
+                </div>
+              </div>
+            ) : (
+              <div className="border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
+                {/* Account Dashboard Header */}
+                <div className="flex justify-between items-center border-b border-white/20 pb-4 flex-wrap gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                        Customer Wallet Active
+                      </span>
+                      <span className="text-[10px] text-slate-500 font-mono">
+                        Member since {customerUser.joinedDate}
+                      </span>
+                    </div>
+                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-1">Hello, {customerUser.name}</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">{customerUser.email} &bull; {customerUser.phone}</p>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setCustomerActiveSubTab('profile')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        customerActiveSubTab === 'profile' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Profile & Wallet
+                    </button>
+                    <button
+                      onClick={() => setCustomerActiveSubTab('orders')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        customerActiveSubTab === 'orders' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Order History
+                    </button>
+                    <button
+                      onClick={() => setCustomerActiveSubTab('chat')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        customerActiveSubTab === 'chat' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Support Chat
+                    </button>
+                    <button
+                      onClick={handleCustomerLogout}
+                      className="px-3 py-1.5 border border-zinc-700 text-zinc-400 rounded text-xs font-bold uppercase bg-black hover:border-white hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Sign Out
+                    </button>
+                  </div>
+                </div>
+
+                {/* Subtab: Customer Profile & Wallet Card Editor */}
+                {customerActiveSubTab === 'profile' && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    {/* Left Col: Edit Profile details & Account Deletion */}
+                    <div className="space-y-6">
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-white">Update Profile</h3>
+                        <div className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
+                            <input
+                              type="text"
+                              value={customerUser.name}
+                              onChange={(e) => setCustomerUser({ ...customerUser, name: e.target.value.toUpperCase() })}
+                              className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                            <input
+                              type="email"
+                              value={customerUser.email}
+                              onChange={(e) => setCustomerUser({ ...customerUser, email: e.target.value })}
+                              className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
+                            <input
+                              type="text"
+                              value={customerUser.phone}
+                              onChange={(e) => setCustomerUser({ ...customerUser, phone: e.target.value })}
+                              className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="border border-red-500/20 p-6 rounded-xl bg-red-950/5 space-y-4">
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-red-500">Danger Zone</h3>
+                        <p className="text-xs text-slate-400">Permanently delete your profile, saved payment methods, and order history from CURBSIDES.</p>
+                        <button
+                          onClick={handleDeleteCustomerAccount}
+                          className="py-2 px-4 border border-red-500 text-red-500 hover:bg-red-500 hover:text-white rounded text-xs font-bold uppercase transition-all cursor-pointer font-heading"
+                        >
+                          Delete Account
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Right Col: Card Wallet Editor */}
+                    <div className="space-y-6">
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="flex justify-between items-center">
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-white">Payment Wallet</h3>
+                          <button
+                            onClick={() => setIsAddingCard(!isAddingCard)}
+                            className="px-2.5 py-1 border border-white rounded text-[10px] font-bold uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                          >
+                            {isAddingCard ? 'Cancel' : 'Add Card'}
+                          </button>
+                        </div>
+
+                        {/* Add Card Form */}
+                        {isAddingCard && (
+                          <form onSubmit={handleAddCustomerCard} className="border border-white/20 p-4 rounded-lg bg-black space-y-3 animate-fade-in">
+                            <div>
+                              <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Card Number</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="4111 2222 3333 4444"
+                                value={newCardNum}
+                                onChange={(e) => setNewCardNum(e.target.value)}
+                                className="w-full px-3 py-2 rounded bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-mono"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Expiry</label>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="MM/YY"
+                                  value={newCardExpiry}
+                                  onChange={(e) => setNewCardExpiry(e.target.value)}
+                                  className="w-full px-3 py-2 rounded bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">CVC</label>
+                                <input
+                                  type="password"
+                                  required
+                                  placeholder="123"
+                                  value={newCardCvc}
+                                  onChange={(e) => setNewCardCvc(e.target.value)}
+                                  className="w-full px-3 py-2 rounded bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-mono"
+                                />
+                              </div>
+                            </div>
+                            <button
+                              type="submit"
+                              className="w-full py-2 border border-white rounded bg-white text-black font-bold text-[10px] uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                            >
+                              Save Credit Card
+                            </button>
+                          </form>
+                        )}
+
+                        {/* Card List */}
+                        {customerCards.length === 0 ? (
+                          <div className="text-center py-6 border border-dashed border-white/20 rounded-lg">
+                            <p className="text-xs text-slate-500 italic">No credit cards saved in your wallet.</p>
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {customerCards.map(card => (
+                              <div key={card.id} className="border border-white/20 p-4 rounded-xl bg-zinc-950 flex justify-between items-center">
+                                <div className="flex items-center gap-3">
+                                  <div className="w-12 h-7 border border-white/20 bg-black rounded flex items-center justify-center font-mono font-bold text-[8px] text-slate-300">
+                                    {card.brand.toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="text-xs font-bold text-white font-mono">•••• •••• •••• {card.last4}</p>
+                                    <p className="text-[9px] text-slate-400">Expires: {card.exp}</p>
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => handleDeleteCustomerCard(card.id)}
+                                  className="p-1.5 border border-red-500 text-red-500 rounded hover:bg-red-500 hover:text-white transition-all cursor-pointer"
+                                  title="Delete saved card"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Subtab: Order History */}
+                {customerActiveSubTab === 'orders' && (
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Your Past Order History</h3>
+                    <div className="border border-white/20 rounded-xl bg-zinc-950/40 overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-white/20 bg-black font-bold uppercase text-slate-400">
+                              <th className="p-3">Order ID</th>
+                              <th className="p-3">Vendor</th>
+                              <th className="p-3">Date</th>
+                              <th className="p-3">Items</th>
+                              <th className="p-3">Amount</th>
+                              <th className="p-3">Status</th>
+                              <th className="p-3 text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/10 text-slate-300">
+                            <tr className="hover:bg-zinc-900 transition-colors">
+                              <td className="p-3 font-bold text-white font-mono uppercase">shopify-1001</td>
+                              <td className="p-3 font-semibold uppercase">Korean BBQ Taco Truck</td>
+                              <td className="p-3 text-slate-500">06/19/2026</td>
+                              <td className="p-3">3x Bulgogi Beef Taco, 1x Kimchi Fries</td>
+                              <td className="p-3 font-mono font-semibold">$22.00</td>
+                              <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">Delivered</td>
+                              <td className="p-3 text-right">
+                                <button
+                                  onClick={() => {
+                                    setTrackingOrderId('shopify-1001');
+                                    setActiveTab('track');
+                                    handleSearchOrder(null, 'shopify-1001');
+                                  }}
+                                  className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                >
+                                  Track Details
+                                </button>
+                              </td>
+                            </tr>
+                            <tr className="hover:bg-zinc-900 transition-colors">
+                              <td className="p-3 font-bold text-white font-mono uppercase">shopify-1002</td>
+                              <td className="p-3 font-semibold uppercase">Empanada Guy</td>
+                              <td className="p-3 text-slate-500">06/18/2026</td>
+                              <td className="p-3">2x Beef & Cheese, 2x Chipotle Chicken</td>
+                              <td className="p-3 font-mono font-semibold">$15.00</td>
+                              <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">Delivered</td>
+                              <td className="p-3 text-right">
+                                <button
+                                  onClick={() => {
+                                    setTrackingOrderId('shopify-1002');
+                                    setActiveTab('track');
+                                    handleSearchOrder(null, 'shopify-1002');
+                                  }}
+                                  className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                >
+                                  Track Details
+                                </button>
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Subtab: Support Chat */}
+                {customerActiveSubTab === 'chat' && (
+                  <div className="space-y-4 max-w-2xl mx-auto">
+                    <div className="border border-white/20 rounded-xl bg-zinc-950/40 overflow-hidden flex flex-col h-[400px]">
+                      {/* Chat Header */}
+                      <div className="p-4 border-b border-white/20 bg-black flex justify-between items-center">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          <span className="text-xs font-bold text-white uppercase tracking-wider">Live Administrator Helpdesk</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 font-mono">Response Time: &lt; 2 mins</span>
+                      </div>
+
+                      {/* Chat Messages */}
+                      <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-950/20 flex flex-col">
+                        {supportMessages.map(msg => (
+                          <div key={msg.id} className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[80%] rounded-xl p-3 border text-xs leading-normal ${
+                              msg.sender === 'user'
+                                ? 'bg-white text-black border-white'
+                                : 'bg-black text-white border-white/20'
+                            }`}>
+                              <p className="m-0 font-medium whitespace-pre-wrap">{msg.text}</p>
+                              <span className={`block text-[8px] mt-1 text-right font-mono ${
+                                msg.sender === 'user' ? 'text-zinc-600' : 'text-slate-500'
+                              }`}>{msg.timestamp}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Chat Input */}
+                      <form onSubmit={handleSendSupportMessage} className="p-3 border-t border-white/20 bg-black flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Type message to administrators..."
+                          value={supportInput}
+                          onChange={(e) => setSupportInput(e.target.value)}
+                          className="flex-1 px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 py-2 border-2 border-white bg-white text-black hover:bg-black hover:text-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading"
+                        >
+                          Send
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                )}
+
               </div>
             )}
           </div>
@@ -1382,7 +2009,7 @@ export default function App() {
                         Live Dispatch Ledger
                       </span>
                       <h3 className="text-lg font-bold uppercase text-white font-heading mt-3">GPS Location Publisher</h3>
-                      <p className="text-xs text-slate-400 mt-1">Publish your street location coordinates directly to the map discoverer.</p>
+                      <p className="text-xs text-slate-400 mt-1">Publish your street location coordinates or enter a street address directly to the map discoverer.</p>
                     </div>
 
                     <div className="max-w-md mx-auto border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
@@ -1397,6 +2024,7 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* Method A: GPS Coordinates */}
                       <button
                         onClick={handleUpdateGps}
                         className="w-full py-4 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer flex items-center justify-center gap-2 font-heading"
@@ -1404,111 +2032,206 @@ export default function App() {
                         <Locate className="w-5 h-5" />
                         Tap to Publish Live GPS
                       </button>
+
+                      <div className="relative flex py-2 items-center">
+                        <div className="flex-grow border-t border-white/10"></div>
+                        <span className="flex-shrink mx-4 text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">OR ENTER STREET ADDRESS</span>
+                        <div className="flex-grow border-t border-white/10"></div>
+                      </div>
+
+                      {/* Method B: Address Text geocoding simulation */}
+                      <form onSubmit={(e) => {
+                        e.preventDefault();
+                        if (!gpsAddressText.trim()) {
+                          setGpsStatus("Please enter an address.");
+                          return;
+                        }
+                        setGpsStatus(`Geocoding and publishing: "${gpsAddressText}"...`);
+                        
+                        // Geocode simulation (derive coordinates in NYC area)
+                        setTimeout(() => {
+                          const lat = 40.7128 + (Math.random() - 0.5) * 0.08;
+                          const lon = -74.0060 + (Math.random() - 0.5) * 0.08;
+                          setGpsCoords({ lat, lon });
+                          setGpsStatus(`Address successfully geocoded and published to live map!`);
+                          
+                          // Update coordinates in the map/vendors list dynamically
+                          setVendors(prev => prev.map(v => {
+                            if (v.id === vendorUser.id) {
+                              return {
+                                ...v,
+                                borough: gpsAddressText.trim(),
+                                coordinates: [lat, lon]
+                              };
+                            }
+                            return v;
+                          }));
+                          console.log(`[Supabase Address Geocode] Updated vendor ${vendorUser.id} coordinates to: [${lat}, ${lon}] at "${gpsAddressText}"`);
+                        }, 1000);
+                      }} className="space-y-3">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-heading">Street Address</label>
+                          <input
+                            type="text"
+                            placeholder="e.g. 5th Ave & 34th St, NYC"
+                            value={gpsAddressText}
+                            onChange={(e) => setGpsAddressText(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-sans"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="w-full py-2.5 border border-white rounded-lg bg-black text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          Geocode & Publish Location
+                        </button>
+                      </form>
                     </div>
                   </div>
                 )}
 
                 {/* Subtab: Store Profile */}
                 {vendorActiveSubTab === 'profile' && (
-                  <form onSubmit={handleUpdateVendorProfile} className="space-y-4 max-w-md mx-auto">
-                    <div className="text-center max-w-md mx-auto py-4">
-                      <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
-                        Store Registry
-                      </span>
-                      <h3 className="text-lg font-bold uppercase text-white font-heading mt-3">Edit Store Profile</h3>
-                      <p className="text-xs text-slate-400 mt-1">Configure business identifiers and tags visible in the directory.</p>
-                    </div>
+                  <div className="space-y-6">
+                    <form onSubmit={handleUpdateVendorProfile} className="space-y-4 max-w-md mx-auto">
+                      <div className="text-center max-w-md mx-auto py-4">
+                        <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                          Store Registry
+                        </span>
+                        <h3 className="text-lg font-bold uppercase text-white font-heading mt-3">Edit Store Profile</h3>
+                        <p className="text-xs text-slate-400 mt-1">Configure business identifiers and tags visible in the directory.</p>
+                      </div>
 
-                    <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
-                      {/* Logo Uploader */}
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Store Logo</label>
-                        <div className="border-2 border-dashed border-white/20 rounded-xl p-4 text-center hover:border-white transition-all cursor-pointer relative bg-zinc-950">
-                          <input
-                            type="file"
-                            accept="image/*"
-                            onChange={(e) => {
-                              const file = e.target.files[0];
-                              if (file) {
-                                const reader = new FileReader();
-                                reader.onloadend = () => setProfileLogo(reader.result);
-                                reader.readAsDataURL(file);
-                              }
-                            }}
-                            className="absolute inset-0 opacity-0 cursor-pointer"
-                          />
-                          {profileLogo ? (
-                            <div className="space-y-2 flex flex-col items-center">
-                              <img src={profileLogo} alt="Preview" className="w-16 h-16 object-cover rounded-full border-2 border-white" />
-                              <span className="text-[9px] text-emerald-400 uppercase font-bold">Logo Loaded</span>
-                            </div>
-                          ) : (
-                            <div className="space-y-1 py-2">
-                              <Upload className="w-4 h-4 mx-auto text-slate-400" />
-                              <span className="text-[10px] text-white font-bold uppercase tracking-wider block">Upload Logo</span>
-                            </div>
-                          )}
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                        {/* Logo Uploader */}
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Store Logo</label>
+                          <div className="border-2 border-dashed border-white/20 rounded-xl p-4 text-center hover:border-white transition-all cursor-pointer relative bg-zinc-950">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={(e) => {
+                                const file = e.target.files[0];
+                                if (file) {
+                                  const reader = new FileReader();
+                                  reader.onloadend = () => setProfileLogo(reader.result);
+                                  reader.readAsDataURL(file);
+                                }
+                              }}
+                              className="absolute inset-0 opacity-0 cursor-pointer"
+                            />
+                            {profileLogo ? (
+                              <div className="space-y-2 flex flex-col items-center">
+                                <img src={profileLogo} alt="Preview" className="w-16 h-16 object-cover rounded-full border-2 border-white" />
+                                <span className="text-[9px] text-emerald-400 uppercase font-bold">Logo Loaded</span>
+                              </div>
+                            ) : (
+                              <div className="space-y-1 py-2">
+                                <Upload className="w-4 h-4 mx-auto text-slate-400" />
+                                <span className="text-[10px] text-white font-bold uppercase tracking-wider block">Upload Logo</span>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Name</label>
-                        <input
-                          type="text"
-                          required
-                          value={profileName}
-                          onChange={(e) => setProfileName(e.target.value)}
-                          className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
-                        />
-                      </div>
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Name</label>
+                          <input
+                            type="text"
+                            required
+                            value={profileName}
+                            onChange={(e) => setProfileName(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                          />
+                        </div>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Operating Borough</label>
-                        <select
-                          value={profileBorough}
-                          onChange={(e) => setProfileBorough(e.target.value)}
-                          className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Operating Borough</label>
+                          <select
+                            value={profileBorough}
+                            onChange={(e) => setProfileBorough(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                          >
+                            <option value="Manhattan">Manhattan</option>
+                            <option value="Brooklyn">Brooklyn</option>
+                            <option value="Queens">Queens</option>
+                            <option value="Bronx">Bronx</option>
+                            <option value="Staten Island">Staten Island</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Tags (Comma-separated)</label>
+                          <input
+                            type="text"
+                            value={profileTags}
+                            onChange={(e) => setProfileTags(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                            placeholder="e.g. Mexican, Tacos, BBQ"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-3 pt-2">
+                          <input
+                            type="checkbox"
+                            id="profileIsOpen"
+                            checked={profileIsOpen}
+                            onChange={(e) => setProfileIsOpen(e.target.checked)}
+                            className="w-4 h-4 border-2 border-white rounded bg-black accent-white"
+                          />
+                          <label htmlFor="profileIsOpen" className="text-xs font-bold uppercase text-white tracking-wide cursor-pointer">
+                            Open for Live Orders
+                          </label>
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full mt-4 py-3 border-2 border-white rounded-lg bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
                         >
-                          <option value="Manhattan">Manhattan</option>
-                          <option value="Brooklyn">Brooklyn</option>
-                          <option value="Queens">Queens</option>
-                          <option value="Bronx">Bronx</option>
-                          <option value="Staten Island">Staten Island</option>
-                        </select>
+                          Save Profile Settings
+                        </button>
                       </div>
+                    </form>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Tags (Comma-separated)</label>
-                        <input
-                          type="text"
-                          value={profileTags}
-                          onChange={(e) => setProfileTags(e.target.value)}
-                          className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
-                          placeholder="e.g. Mexican, Tacos, BBQ"
-                        />
+                    {/* Fleet Upgrade Panel */}
+                    <div className="mt-6 border-t border-white/20 pt-6 max-w-md mx-auto animate-fade-in">
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div>
+                          <h4 className="text-xs font-bold uppercase text-white tracking-wider font-heading">Multi-Truck Fleet Upgrade</h4>
+                          <p className="text-[11px] text-slate-400 mt-1">Want to expand your operations? Apply to manage multiple food trucks under your vendor profile.</p>
+                        </div>
+                        
+                        {upgradeRequests.some(r => r.vendorId === vendorUser.id && r.status === 'pending') ? (
+                          <div className="p-3 border border-amber-500 bg-amber-950/20 text-amber-500 text-xs font-bold uppercase text-center rounded">
+                            Upgrade Request Pending Admin Review
+                          </div>
+                        ) : upgradeRequests.some(r => r.vendorId === vendorUser.id && r.status === 'approved') ? (
+                          <div className="p-3 border border-emerald-500 bg-emerald-950/20 text-emerald-500 text-xs font-bold uppercase text-center rounded">
+                            Multi-Truck Privilege: Approved (Level 2)
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newReq = {
+                                id: 'up-' + Date.now(),
+                                vendorId: vendorUser.id,
+                                vendorName: vendorUser.name,
+                                requestedTrucks: 3,
+                                status: 'pending',
+                                timestamp: new Date().toISOString()
+                              };
+                              setUpgradeRequests([...upgradeRequests, newReq]);
+                              alert("Fleet upgrade request sent to the administrator console.");
+                            }}
+                            className="w-full py-2.5 border-2 border-white rounded-lg bg-black text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                          >
+                            Request Fleet Manager Upgrade (3 Trucks)
+                          </button>
+                        )}
                       </div>
-
-                      <div className="flex items-center gap-3 pt-2">
-                        <input
-                          type="checkbox"
-                          id="profileIsOpen"
-                          checked={profileIsOpen}
-                          onChange={(e) => setProfileIsOpen(e.target.checked)}
-                          className="w-4 h-4 border-2 border-white rounded bg-black accent-white"
-                        />
-                        <label htmlFor="profileIsOpen" className="text-xs font-bold uppercase text-white tracking-wide cursor-pointer">
-                          Open for Live Orders
-                        </label>
-                      </div>
-
-                      <button
-                        type="submit"
-                        className="w-full mt-4 py-3 border-2 border-white rounded-lg bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                      >
-                        Save Profile Settings
-                      </button>
                     </div>
-                  </form>
+                  </div>
                 )}
               </div>
             )}
@@ -1591,6 +2314,14 @@ export default function App() {
                       }`}
                     >
                       Finance
+                    </button>
+                    <button
+                      onClick={() => setAdminSubTab('integrations')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        adminSubTab === 'integrations' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Integrations
                     </button>
                   </div>
                 </div>
@@ -1691,6 +2422,68 @@ export default function App() {
                           ))}
                         </tbody>
                       </table>
+                    </div>
+
+                    {/* Multi-Truck Fleet Upgrade Requests */}
+                    <div className="border-t border-white/20 pt-6 mt-6 animate-fade-in">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">Multi-Truck Fleet Upgrade Requests</h3>
+                      {upgradeRequests.length === 0 ? (
+                        <p className="text-xs text-slate-500 italic">No pending fleet upgrade requests.</p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left text-xs border-collapse">
+                            <thead>
+                              <tr className="border-b border-white/20 font-bold uppercase text-slate-400">
+                                <th className="py-2.5">Food Truck</th>
+                                <th className="py-2.5">Upgrade Details</th>
+                                <th className="py-2.5">Date Requested</th>
+                                <th className="py-2.5">Status</th>
+                                <th className="py-2.5 text-right">Actions</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/10 text-slate-300">
+                              {upgradeRequests.map(req => (
+                                <tr key={req.id} className="hover:bg-zinc-950 transition-colors">
+                                  <td className="py-3 font-bold text-white uppercase">{req.vendorName}</td>
+                                  <td className="py-3 text-slate-400">Requesting manager role for {req.requestedTrucks} trucks</td>
+                                  <td className="py-3 text-slate-500 font-mono">{new Date(req.timestamp).toLocaleDateString()}</td>
+                                  <td className="py-3 uppercase text-[10px] font-bold">
+                                    <span className={req.status === 'approved' ? 'text-emerald-500' : req.status === 'rejected' ? 'text-rose-500' : 'text-amber-500'}>
+                                      {req.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 text-right space-x-2">
+                                    {req.status === 'pending' && (
+                                      <>
+                                        <button
+                                          onClick={() => {
+                                            setUpgradeRequests(upgradeRequests.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
+                                            alert(`Approved ${req.vendorName} for multi-truck fleet manager privileges.`);
+                                          }}
+                                          className="px-2 py-1 border border-emerald-500 rounded text-[10px] font-bold uppercase bg-emerald-950/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
+                                        >
+                                          Approve
+                                        </button>
+                                        <button
+                                          onClick={() => {
+                                            setUpgradeRequests(upgradeRequests.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
+                                          }}
+                                          className="px-2 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-950/20 text-rose-500 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                                        >
+                                          Reject
+                                        </button>
+                                      </>
+                                    )}
+                                    {req.status !== 'pending' && (
+                                      <span className="text-[10px] text-slate-500 uppercase font-bold">Processed</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1809,13 +2602,79 @@ export default function App() {
                     </div>
                   );
                 })()}
+
+                {/* Sub Tab: Integrations */}
+                {adminSubTab === 'integrations' && (
+                  <div className="space-y-6 animate-fade-in">
+                    <div className="flex justify-between items-center border-b border-white/10 pb-3 flex-wrap gap-2">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Shopify & Shipday Integration Hub</h3>
+                      <div className="flex gap-2">
+                        <span className="flex items-center gap-1.5 text-[9px] bg-emerald-950/20 border border-emerald-500/30 px-2 py-0.5 rounded text-emerald-400 font-bold uppercase tracking-wider">
+                          <Check className="w-3 h-3" /> Shopify Connected
+                        </span>
+                        <span className="flex items-center gap-1.5 text-[9px] bg-emerald-950/20 border border-emerald-500/30 px-2 py-0.5 rounded text-emerald-400 font-bold uppercase tracking-wider">
+                          <Check className="w-3 h-3" /> Shipday Webhook Active
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Shopify API Logs Panel */}
+                      <div className="border border-white/20 p-5 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-white text-black text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded">SHOPIFY</span>
+                            <h4 className="text-xs font-bold uppercase text-white font-heading">Storefront Sync logs</h4>
+                          </div>
+                          <span className="text-[10px] font-mono text-emerald-400 font-bold">ONLINE (SSL)</span>
+                        </div>
+                        
+                        <div className="space-y-2.5 font-mono text-[10px] bg-black p-3.5 border border-white/10 rounded-lg overflow-y-auto max-h-[220px]">
+                          <div className="text-slate-500">[2026-06-20 02:40:12] <span className="text-white">API FETCH:</span> Querying 100 products from store catalog...</div>
+                          <div className="text-slate-500">[2026-06-20 02:40:13] <span className="text-slate-400">RESOLVED:</span> Found 4 active food trucks on storefront API.</div>
+                          <div className="text-slate-500">[2026-06-20 02:40:13] <span className="text-emerald-400">SYNC SUCCESS:</span> Local registry updated with 10 active products.</div>
+                          <div className="text-slate-500">[2026-06-20 02:42:01] <span className="text-white">MUTATION:</span> Generating checkout token for cart items...</div>
+                          <div className="text-slate-500">[2026-06-20 02:42:02] <span className="text-slate-400">CHECKOUT URL:</span> https://checkout.shopify.com/sandbox-checkout-simulation</div>
+                        </div>
+
+                        <div className="text-[10px] text-slate-400 leading-normal">
+                          * Storefront API synchronizes food items from products list automatically when configurations are populated.
+                        </div>
+                      </div>
+
+                      {/* Shipday Webhooks Panel */}
+                      <div className="border border-white/20 p-5 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <span className="bg-white text-black text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded">SHIPDAY</span>
+                            <h4 className="text-xs font-bold uppercase text-white font-heading">Dispatch webhook logs</h4>
+                          </div>
+                          <span className="text-[10px] font-mono text-emerald-400 font-bold">LISTENING (HMAC Verified)</span>
+                        </div>
+                        
+                        <div className="space-y-2.5 font-mono text-[10px] bg-black p-3.5 border border-white/10 rounded-lg overflow-y-auto max-h-[220px]">
+                          <div className="text-slate-500">[2026-06-20 02:35:10] <span className="text-slate-300">WEBHOOK POST:</span> X-Shopify-Hmac-Sha256 verified successfully.</div>
+                          <div className="text-slate-500">[2026-06-20 02:35:11] <span className="text-amber-500">FORWARDING:</span> Posting payload to https://dispatch.shipday.com/shopify/order...</div>
+                          <div className="text-slate-500">[2026-06-20 02:35:12] <span className="text-emerald-400">SHIPDAY ACK:</span> Order shopify-1001 synced to dispatch board.</div>
+                          <div className="text-slate-500">[2026-06-20 02:38:45] <span className="text-slate-300">WEBHOOK POST:</span> X-Shopify-Hmac-Sha256 verified successfully.</div>
+                          <div className="text-slate-500">[2026-06-20 02:38:46] <span className="text-amber-500">FORWARDING:</span> Posting payload to Shipday dispatch engine...</div>
+                          <div className="text-slate-500">[2026-06-20 02:38:47] <span className="text-emerald-400">SHIPDAY ACK:</span> Order shopify-1002 synced to dispatch board.</div>
+                        </div>
+
+                        <div className="text-[10px] text-slate-400 leading-normal">
+                          * HMAC signature <code className="bg-white/10 px-1 rounded text-white text-[9px]">X-Shopify-Hmac-Sha256</code> is validated at the middleware endpoint before dispatching payload.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
         )}
 
         {/* Directory Tab View */}
-        {activeTab !== 'track' && activeTab !== 'admin' && activeTab !== 'vendor-onboard' && activeTab !== 'vendor-portal' && (
+        {activeTab !== 'track' && activeTab !== 'admin' && activeTab !== 'vendor-onboard' && activeTab !== 'vendor-portal' && activeTab !== 'account' && (
           <>
             {/* Left / Main Section: Directory & Outlines */}
             <div className={`lg:col-span-7 flex flex-col border-r-2 border-white overflow-y-auto ${
@@ -2501,7 +3360,17 @@ export default function App() {
 
       {/* Footer */}
       <footer className="border-t-2 border-white px-6 py-4 flex justify-between items-center text-xs text-slate-500">
-        <div>&copy; 2026 CURBSIDES. Street Food, Every Corner.</div>
+        <div className="flex items-center gap-4">
+          <span>&copy; 2026 CURBSIDES. Street Food, Every Corner.</span>
+          {!isStaffAuthenticated && (
+            <button
+              onClick={() => setIsStaffOpen(true)}
+              className="text-[10px] text-zinc-600 hover:text-white transition-colors uppercase font-bold tracking-wider cursor-pointer bg-transparent border-0"
+            >
+              Staff Access
+            </button>
+          )}
+        </div>
         <div className="flex items-center gap-1.5 text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-slate-400 font-bold uppercase tracking-wider">
           <Activity className="w-3.5 h-3.5 text-white" /> System Operating
         </div>
