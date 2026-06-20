@@ -73,9 +73,13 @@ export default function App() {
   const [gpsStatus, setGpsStatus] = useState('');
   const [gpsCoords, setGpsCoords] = useState(null);
 
-  // Admin View State
+  // Admin & Staff View State
   const [adminPassword, setAdminPassword] = useState('');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
+  const [isStaffAuthenticated, setIsStaffAuthenticated] = useState(false);
+  const [isStaffOpen, setIsStaffOpen] = useState(false);
+  const [staffPasscode, setStaffPasscode] = useState('');
+  const [staffError, setStaffError] = useState('');
   const [adminSubTab, setAdminSubTab] = useState('drivers'); // 'drivers' | 'finance' | 'vendors' | 'applications'
   const [adminError, setAdminError] = useState('');
 
@@ -399,9 +403,31 @@ export default function App() {
     setAdminError('');
     if (adminPassword === 'curbside-admin-2026') {
       setIsAdminAuthenticated(true);
+      setIsStaffAuthenticated(true); // Sync staff authenticated state
     } else {
       setAdminError('Access Denied. Invalid Administrator Passcode.');
     }
+  };
+
+  // Authenticate Staff Console Access
+  const handleStaffAuth = (e) => {
+    e.preventDefault();
+    setStaffError('');
+    if (staffPasscode === 'curbside-admin-2026') {
+      setIsStaffAuthenticated(true);
+      setIsAdminAuthenticated(true); // Share authentication state for seamless UX
+      setIsStaffOpen(false);
+      setStaffPasscode('');
+    } else {
+      setStaffError('Access Denied. Invalid Staff Passcode.');
+    }
+  };
+
+  // Log Out / Lock Console
+  const handleStaffLogout = () => {
+    setIsStaffAuthenticated(false);
+    setIsAdminAuthenticated(false);
+    setActiveTab('directory');
   };
 
   return (
@@ -424,32 +450,59 @@ export default function App() {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap sm:gap-3">
-          <button
-            onClick={() => setActiveTab(activeTab === 'vendor-portal' ? 'directory' : 'vendor-portal')}
-            className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-              activeTab === 'vendor-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-            }`}
-          >
-            Vendor GPS
-          </button>
+          {isStaffAuthenticated ? (
+            <>
+              <button
+                onClick={() => setActiveTab(activeTab === 'admin' ? 'directory' : 'admin')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'admin' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Admin Panel
+              </button>
 
-          <button
-            onClick={() => setActiveTab(activeTab === 'vendor-onboard' ? 'directory' : 'vendor-onboard')}
-            className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-              activeTab === 'vendor-onboard' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-            }`}
-          >
-            Vendor Join
-          </button>
+              <button
+                onClick={() => setActiveTab(activeTab === 'vendor-portal' ? 'directory' : 'vendor-portal')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'vendor-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Vendor GPS
+              </button>
 
-          <button
-            onClick={() => setActiveTab(activeTab === 'admin' ? 'directory' : 'admin')}
-            className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-              activeTab === 'admin' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-            }`}
-          >
-            Admin Panel
-          </button>
+              <button
+                onClick={() => setActiveTab(activeTab === 'vendor-onboard' ? 'directory' : 'vendor-onboard')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'vendor-onboard' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Vendor Join
+              </button>
+
+              <button 
+                onClick={() => setIsConfigOpen(true)}
+                className="p-2 border-2 border-white rounded-lg hover:bg-white hover:text-black transition-all cursor-pointer"
+                title="Configure Shopify Backend"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={handleStaffLogout}
+                className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"
+                title="Lock Console / Log out staff"
+              >
+                Lock
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setIsStaffOpen(true)}
+              className="px-3 py-1.5 border-2 border-zinc-700 rounded-lg text-xs font-bold uppercase bg-black text-zinc-400 hover:border-white hover:text-white transition-all cursor-pointer font-heading"
+            >
+              Staff Access
+            </button>
+          )}
 
           <button
             onClick={() => setActiveTab(activeTab === 'track' ? 'directory' : 'track')}
@@ -458,14 +511,6 @@ export default function App() {
             }`}
           >
             Track Order
-          </button>
-
-          <button 
-            onClick={() => setIsConfigOpen(true)}
-            className="p-2 border-2 border-white rounded-lg hover:bg-white hover:text-black transition-all cursor-pointer"
-            title="Configure Shopify Backend"
-          >
-            <Settings className="w-4 h-4" />
           </button>
           
           <button
@@ -573,7 +618,7 @@ export default function App() {
         )}
 
         {/* Vendor Onboarding Application Form */}
-        {activeTab === 'vendor-onboard' && (
+        {activeTab === 'vendor-onboard' && isStaffAuthenticated && (
           <div className="lg:col-span-12 p-6 flex flex-col justify-center items-center max-w-lg mx-auto w-full">
             <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-6">
               <div className="text-center">
@@ -689,7 +734,7 @@ export default function App() {
         )}
 
         {/* Vendor Portal: Live GPS Location Publisher */}
-        {activeTab === 'vendor-portal' && (
+        {activeTab === 'vendor-portal' && isStaffAuthenticated && (
           <div className="lg:col-span-12 p-6 flex flex-col justify-center items-center max-w-lg mx-auto w-full space-y-6">
             <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-6">
               <div className="text-center">
@@ -739,7 +784,7 @@ export default function App() {
         )}
 
         {/* Custom Admin Panel Tab View */}
-        {activeTab === 'admin' && (
+        {activeTab === 'admin' && isStaffAuthenticated && (
           <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
             {!isAdminAuthenticated ? (
               <div className="max-w-md mx-auto w-full border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
@@ -1494,6 +1539,60 @@ export default function App() {
                   className="w-full py-3 border-2 border-white rounded-lg bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer"
                 >
                   Save Connection Config
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {/* Modal: Staff Passcode Access Gate */}
+      {isStaffOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-md border-2 border-white bg-black rounded-2xl p-6 shadow-2xl relative">
+            <button 
+              onClick={() => {
+                setIsStaffOpen(false);
+                setStaffError('');
+                setStaffPasscode('');
+              }}
+              className="absolute top-4 right-4 p-2 border-2 border-white rounded-lg hover:bg-white hover:text-black transition-all cursor-pointer text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="text-center mb-6">
+              <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                Console Access Gate
+              </span>
+              <h3 className="text-xl font-bold uppercase text-white font-heading mt-3">Staff Passcode Verification</h3>
+              <p className="text-xs text-slate-400 mt-1">Please enter the passcode to unlock admin and vendor operations controls.</p>
+            </div>
+
+            <form onSubmit={handleStaffAuth} className="space-y-4">
+              {staffError && (
+                <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
+                  {staffError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Enter Passcode</label>
+                <input
+                  type="password"
+                  placeholder="Passcode (e.g. curbside-admin-2026)"
+                  value={staffPasscode}
+                  onChange={(e) => setStaffPasscode(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl omny-input text-sm text-white"
+                  autoFocus
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  className="w-full py-3 border-2 border-white rounded-xl bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                >
+                  Verify Passcode
                 </button>
               </div>
             </form>
