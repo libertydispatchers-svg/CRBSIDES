@@ -72,6 +72,18 @@ export default function App() {
   const [vendorOnboardSuccess, setVendorOnboardSuccess] = useState(false);
   const [vendorOnboardError, setVendorOnboardError] = useState('');
 
+  // Driver Onboarding Signup Form State
+  const [driverNameInput, setDriverNameInput] = useState('');
+  const [driverEmailInput, setDriverEmailInput] = useState('');
+  const [driverPhoneInput, setDriverPhoneInput] = useState('');
+  const [driverVehicle, setDriverVehicle] = useState('car');
+  const [driverBoroughsInput, setDriverBoroughsInput] = useState(['Manhattan']);
+  const [driverOnboardSuccess, setDriverOnboardSuccess] = useState(false);
+  const [driverOnboardError, setDriverOnboardError] = useState('');
+  
+  // Customer Account Hub Tab State
+  const [accountSubTab, setAccountSubTab] = useState('signin');
+
   // Vendor Portal GPS Update State
   const [selectedPortalVendorId, setSelectedPortalVendorId] = useState('');
   const [gpsStatus, setGpsStatus] = useState('');
@@ -239,6 +251,38 @@ export default function App() {
     setStorefrontToken(config.token);
     setAdminTokenInput(localStorage.getItem('curbsides_shopify_admin_token') || '');
   }, [isConfigOpen]);
+
+  // URL routing and single page navigation listener
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      if (path === '/vendor-onboard') setActiveTab('vendor-onboard');
+      else if (path === '/driver-onboard') setActiveTab('driver-onboard');
+      else if (path === '/admin') setActiveTab('admin');
+      else if (path === '/vendor-portal') setActiveTab('vendor-portal');
+      else if (path === '/track') setActiveTab('track');
+      else if (path === '/account') setActiveTab('account');
+      else setActiveTab('directory');
+    };
+    window.addEventListener('popstate', handlePopState);
+    handlePopState(); // Check once on initial mount
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Update browser URL pathname when activeTab state changes
+  useEffect(() => {
+    const targetPath = 
+      activeTab === 'vendor-onboard' ? '/vendor-onboard' :
+      activeTab === 'driver-onboard' ? '/driver-onboard' :
+      activeTab === 'admin' ? '/admin' :
+      activeTab === 'vendor-portal' ? '/vendor-portal' :
+      activeTab === 'track' ? '/track' :
+      activeTab === 'account' ? '/account' : '/';
+      
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, '', window.location.origin + targetPath + window.location.search);
+    }
+  }, [activeTab]);
 
   // Shopify OAuth Handshake Listener
   useEffect(() => {
@@ -569,6 +613,47 @@ export default function App() {
     setVendorEmail('');
     setVendorPhone('');
     setVendorFoodType('');
+  };
+
+  const handleDriverOnboard = (e) => {
+    e.preventDefault();
+    setDriverOnboardError('');
+    setDriverOnboardSuccess(false);
+
+    if (!driverNameInput.trim() || !driverEmailInput.trim() || !driverPhoneInput.trim()) {
+      setDriverOnboardError('All fields are required.');
+      return;
+    }
+
+    const newDriver = {
+      id: 'd-' + Date.now(),
+      fullName: driverNameInput.trim(),
+      email: driverEmailInput.trim(),
+      phone: driverPhoneInput.trim(),
+      vehicleType: driverVehicle,
+      boroughs: driverBoroughsInput,
+      status: 'pending',
+      deliveries: 0,
+      earnings: 0.00
+    };
+
+    setDrivers(prev => [...prev, newDriver]);
+    setDriverOnboardSuccess(true);
+
+    // Clear form fields
+    setDriverNameInput('');
+    setDriverEmailInput('');
+    setDriverPhoneInput('');
+    setDriverVehicle('car');
+    setDriverBoroughsInput(['Manhattan']);
+  };
+
+  const handleBoroughChange = (borough) => {
+    if (driverBoroughsInput.includes(borough)) {
+      setDriverBoroughsInput(driverBoroughsInput.filter(b => b !== borough));
+    } else {
+      setDriverBoroughsInput([...driverBoroughsInput, borough]);
+    }
   };
 
   // Handle Vendor Approval and Sync to Shopify Product Catalog
@@ -1239,142 +1324,179 @@ export default function App() {
         {activeTab === 'account' && (
           <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
             {!customerUser ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto border-2 border-white bg-black rounded-2xl p-6 md:p-8 shadow-2xl relative">
-                {/* Column 1: Log In */}
-                <div className="space-y-6">
-                  <div>
-                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
-                      Customer Hub
-                    </span>
-                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Sign In</h2>
-                    <p className="text-xs text-slate-400 mt-1">Access your wallet, order tracking, and support center.</p>
-                  </div>
-
-                  {customerAuthError && (
-                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
-                      {customerAuthError}
-                    </div>
-                  )}
-
-                  <form onSubmit={handleCustomerLogin} className="space-y-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
-                      <input
-                        type="email"
-                        required
-                        placeholder="customer@example.com"
-                        value={customerLoginEmail}
-                        onChange={(e) => setCustomerLoginEmail(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="••••••••"
-                        value={customerLoginPassword}
-                        onChange={(e) => setCustomerLoginPassword(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                    >
-                      Login to Wallet
-                    </button>
-                  </form>
-                  
-                  <div className="pt-2 text-center border-t border-white/10">
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">Quick Demo Login</p>
-                    <button
-                      onClick={() => {
-                        setCustomerUser({
-                          name: 'ALICE SMITH',
-                          email: 'alice@example.com',
-                          phone: '555-0199',
-                          joinedDate: '06/15/2026'
-                        });
-                      }}
-                      className="mt-2 text-[10px] border border-zinc-800 bg-zinc-950 px-3 py-1 rounded text-zinc-300 hover:border-white transition-all uppercase font-semibold"
-                    >
-                      Demo Account: Alice
-                    </button>
-                  </div>
+              <div className="max-w-md mx-auto border-2 border-white bg-black rounded-2xl p-6 md:p-8 shadow-2xl relative space-y-6">
+                {/* Switcher Tabs */}
+                <div className="flex border-b border-white/15">
+                  <button
+                    onClick={() => setAccountSubTab('signin')}
+                    className={`flex-1 pb-3 text-sm font-extrabold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                      accountSubTab === 'signin' ? 'border-white text-white' : 'border-transparent text-slate-500 hover:text-white'
+                    }`}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    onClick={() => setAccountSubTab('register')}
+                    className={`flex-1 pb-3 text-sm font-extrabold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                      accountSubTab === 'register' ? 'border-white text-white' : 'border-transparent text-slate-500 hover:text-white'
+                    }`}
+                  >
+                    Register
+                  </button>
                 </div>
 
-                {/* Vertical Divider */}
-                <div className="hidden md:block w-[1px] bg-white/25 self-stretch"></div>
+                {/* Sub Tab: Sign In */}
+                {accountSubTab === 'signin' && (
+                  <div className="space-y-6 animate-fade-in">
+                    <div>
+                      <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                        Customer Hub
+                      </span>
+                      <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Sign In</h2>
+                      <p className="text-xs text-slate-400 mt-1">Access your wallet, order tracking, and support center.</p>
+                    </div>
 
-                {/* Column 2: Sign Up */}
-                <div className="space-y-6">
-                  <div>
-                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
-                      New Account
-                    </span>
-                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Register</h2>
-                    <p className="text-xs text-slate-400 mt-1">Create an account to track deliveries and save credit cards.</p>
+                    {customerAuthError && (
+                      <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
+                        {customerAuthError}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleCustomerLogin} className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="customer@example.com"
+                          value={customerLoginEmail}
+                          onChange={(e) => setCustomerLoginEmail(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
+                        <input
+                          type="password"
+                          required
+                          placeholder="••••••••"
+                          value={customerLoginPassword}
+                          onChange={(e) => setCustomerLoginPassword(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                      >
+                        Login to Wallet
+                      </button>
+                    </form>
+                    
+                    <div className="pt-2 text-center border-t border-white/10">
+                      <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">Quick Demo Login</p>
+                      <button
+                        onClick={() => {
+                          setCustomerUser({
+                            name: 'ALICE SMITH',
+                            email: 'alice@example.com',
+                            phone: '555-0199',
+                            joinedDate: '06/15/2026'
+                          });
+                        }}
+                        className="mt-2 text-[10px] border border-zinc-800 bg-zinc-950 px-3 py-1 rounded text-zinc-300 hover:border-white transition-all uppercase font-semibold cursor-pointer"
+                      >
+                        Demo Account: Alice
+                      </button>
+                    </div>
                   </div>
+                )}
 
-                  <form onSubmit={handleCustomerSignup} className="space-y-4">
+                {/* Sub Tab: Register */}
+                {accountSubTab === 'register' && (
+                  <div className="space-y-6 animate-fade-in">
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Alice Smith"
-                        value={customerRegisterName}
-                        onChange={(e) => setCustomerRegisterName(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
-                      />
+                      <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                        New Account
+                      </span>
+                      <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Register</h2>
+                      <p className="text-xs text-slate-400 mt-1">Create an account to track deliveries and save credit cards.</p>
                     </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
-                      <input
-                        type="email"
-                        required
-                        placeholder="alice@example.com"
-                        value={customerRegisterEmail}
-                        onChange={(e) => setCustomerRegisterEmail(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
-                      />
-                    </div>
+                    <form onSubmit={handleCustomerSignup} className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Alice Smith"
+                          value={customerRegisterName}
+                          onChange={(e) => setCustomerRegisterName(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
-                      <input
-                        type="tel"
-                        placeholder="555-0199"
-                        value={customerRegisterPhone}
-                        onChange={(e) => setCustomerRegisterPhone(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
-                      />
-                    </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="alice@example.com"
+                          value={customerRegisterEmail}
+                          onChange={(e) => setCustomerRegisterEmail(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                        />
+                      </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
-                      <input
-                        type="password"
-                        required
-                        placeholder="••••••••"
-                        value={customerRegisterPassword}
-                        onChange={(e) => setCustomerRegisterPassword(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
-                      />
-                    </div>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
+                        <input
+                          type="tel"
+                          placeholder="555-0199"
+                          value={customerRegisterPhone}
+                          onChange={(e) => setCustomerRegisterPhone(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                        />
+                      </div>
 
-                    <button
-                      type="submit"
-                      className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                    >
-                      Create Account
-                    </button>
-                  </form>
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
+                        <input
+                          type="password"
+                          required
+                          placeholder="••••••••"
+                          value={customerRegisterPassword}
+                          onChange={(e) => setCustomerRegisterPassword(e.target.value)}
+                          className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                      >
+                        Create Account
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {/* Footer Section for Partners */}
+                <div className="pt-4 border-t border-white/10 flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  <button 
+                    onClick={() => setActiveTab('vendor-onboard')}
+                    className="hover:text-white transition-colors cursor-pointer bg-transparent border-0 underline"
+                  >
+                    Vendor Sign Up
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('driver-onboard')}
+                    className="hover:text-white transition-colors cursor-pointer bg-transparent border-0 underline"
+                  >
+                    Driver Application
+                  </button>
                 </div>
               </div>
             ) : (
@@ -1695,7 +1817,7 @@ export default function App() {
         )}
 
         {/* Vendor Onboarding Application Form */}
-        {activeTab === 'vendor-onboard' && isStaffAuthenticated && (
+        {activeTab === 'vendor-onboard' && (
           <div className="lg:col-span-12 p-6 flex flex-col justify-center items-center max-w-lg mx-auto w-full">
             <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-6">
               <div className="text-center">
@@ -1802,6 +1924,130 @@ export default function App() {
                       className="w-full py-3 border-2 border-white rounded-lg bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
                     >
                       Submit Joining Request
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Driver Onboarding Application Form */}
+        {activeTab === 'driver-onboard' && (
+          <div className="lg:col-span-12 p-6 flex flex-col justify-center items-center max-w-lg mx-auto w-full">
+            <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-6">
+              <div className="text-center">
+                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                  Drive for Curbsides
+                </span>
+                <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Driver Registration</h2>
+                <p className="text-xs text-slate-400 mt-1">Apply to join the delivery fleet and start earning on your own schedule.</p>
+              </div>
+
+              {driverOnboardSuccess ? (
+                <div className="border border-white/20 bg-white/5 p-6 rounded-xl text-center space-y-4 animate-fade-in">
+                  <div className="w-12 h-12 rounded-full border-2 border-white flex items-center justify-center mx-auto bg-white text-black">
+                    <Check className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-lg font-bold uppercase text-white">Application Received!</h3>
+                  <p className="text-xs text-slate-300">
+                    Your onboarding application has been filed successfully.
+                  </p>
+                  <div className="bg-black border border-white/10 p-3 rounded-lg text-left text-xs space-y-1.5 text-slate-400 font-mono">
+                    <div>1. Dispatch team will review your contact info & vehicle type.</div>
+                    <div>2. Upon approval, you will receive an SMS access credential.</div>
+                    <div>3. Log in to the driver companion console to begin accepting shifts.</div>
+                  </div>
+                  <button 
+                    onClick={() => setDriverOnboardSuccess(false)}
+                    className="text-xs text-white font-bold hover:underline"
+                  >
+                    Submit another application
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleDriverOnboard} className="space-y-4">
+                  {driverOnboardError && (
+                    <div className="border border-white/20 p-3 rounded-lg text-xs text-rose-400 bg-rose-950/20 font-bold uppercase">
+                      {driverOnboardError}
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Sarah Chen"
+                      value={driverNameInput}
+                      onChange={(e) => setDriverNameInput(e.target.value)}
+                      className="w-full px-3 py-2.5 rounded-lg omny-input text-xs text-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="email@example.com"
+                        value={driverEmailInput}
+                        onChange={(e) => setDriverEmailInput(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-lg omny-input text-xs text-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
+                      <input
+                        type="tel"
+                        required
+                        placeholder="(555) 000-0000"
+                        value={driverPhoneInput}
+                        onChange={(e) => setDriverPhoneInput(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-lg omny-input text-xs text-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Vehicle Type</label>
+                      <select
+                        value={driverVehicle}
+                        onChange={(e) => setDriverVehicle(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-lg omny-input text-xs text-white"
+                      >
+                        <option value="car">Car (Fuel / Hybrid)</option>
+                        <option value="bicycle">Bicycle (Manual)</option>
+                        <option value="scooter">Electric Scooter / e-Bike</option>
+                        <option value="walk">On Foot (Walk)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Boroughs of Interest</label>
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-slate-300 py-1">
+                        {['Manhattan', 'Brooklyn', 'Queens', 'Bronx', 'Staten Island'].map(boro => (
+                          <label key={boro} className="flex items-center gap-1 text-[10px] font-semibold cursor-pointer">
+                            <input 
+                              type="checkbox"
+                              checked={driverBoroughsInput.includes(boro)}
+                              onChange={() => handleBoroughChange(boro)}
+                              className="accent-white"
+                            />
+                            {boro}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="submit"
+                      className="w-full py-3 border-2 border-white rounded-lg bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Submit Driver Application
                     </button>
                   </div>
                 </form>
@@ -2499,6 +2745,50 @@ export default function App() {
                     >
                       Integrations
                     </button>
+                  </div>
+                </div>
+
+                {/* Public Registration Links Widget */}
+                <div className="p-4 border border-white/10 rounded-xl bg-zinc-950/40 grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+                  <div>
+                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Public Vendor Onboarding URL</h4>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="text" 
+                        readOnly 
+                        value={`${window.location.origin}/vendor-onboard`}
+                        className="w-full bg-black border border-white/10 text-xs px-2.5 py-1.5 rounded-lg text-slate-300 font-mono"
+                      />
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/vendor-onboard`);
+                          alert("Vendor Onboarding URL copied to clipboard!");
+                        }}
+                        className="px-3 py-1.5 bg-white text-black hover:bg-black hover:text-white border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer"
+                      >
+                        Copy
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Public Driver Registration URL</h4>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="text" 
+                        readOnly 
+                        value={`${window.location.origin}/driver-onboard`}
+                        className="w-full bg-black border border-white/10 text-xs px-2.5 py-1.5 rounded-lg text-slate-300 font-mono"
+                      />
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(`${window.location.origin}/driver-onboard`);
+                          alert("Driver Registration URL copied to clipboard!");
+                        }}
+                        className="px-3 py-1.5 bg-white text-black hover:bg-black hover:text-white border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer"
+                      >
+                        Copy
+                      </button>
+                    </div>
                   </div>
                 </div>
 
