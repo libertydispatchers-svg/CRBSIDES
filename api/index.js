@@ -265,7 +265,8 @@ app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res)
           customerEmail: customerEmail,
           customerPhoneNumber: customerPhone,
           restaurantName: "Curbsides: " + vendorName,
-          restaurantAddress: vendorAddress
+          restaurantAddress: vendorAddress,
+          paymentMethod: "credit_card"
         };
 
         await axios.post("https://api.shipday.com/orders", shipdayPayload, {
