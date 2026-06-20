@@ -963,12 +963,13 @@ export default function App() {
   };
 
   // Add a new menu item to the vendor
-  const handleAddMenuItem = (e) => {
+  const handleAddMenuItem = async (e) => {
     e.preventDefault();
     if (!newMenuName || !newMenuPrice || !vendorUser) return;
     
+    const newItemId = 'menu-' + Date.now();
     const newItem = {
-      id: 'menu-' + Date.now(),
+      id: newItemId,
       name: newMenuName,
       description: newMenuDesc,
       price: parseFloat(newMenuPrice),
@@ -978,7 +979,6 @@ export default function App() {
     const updatedVendors = vendors.map(v => {
       if (v.id === vendorUser.id) {
         const updatedItems = [...v.items, newItem];
-        // Set vendorUser inside state updates correctly
         setVendorUser({ ...v, items: updatedItems });
         return { ...v, items: updatedItems };
       }
@@ -986,6 +986,57 @@ export default function App() {
     });
 
     setVendors(updatedVendors);
+
+    // Sync to Shopify if connected
+    const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token');
+    const shopifyConfig = localStorage.getItem('curbsides_shopify_config');
+    let shopDomain = "";
+    if (shopifyConfig) {
+      try {
+        shopDomain = JSON.parse(shopifyConfig).domain;
+      } catch(e) {}
+    }
+
+    if (shopifyAdminToken && shopDomain) {
+      addShopifyApiLog('CREATING PRODUCT', `Syncing new menu item "${newMenuName}" to Shopify...`, 'text-white');
+      try {
+        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+        const response = await fetch(`${BACKEND_URL}/api/shopify/create-product`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            shop: shopDomain,
+            admin_token: shopifyAdminToken,
+            title: newMenuName,
+            vendorName: vendorUser.name,
+            borough: vendorUser.borough || 'NYC',
+            foodType: vendorUser.foodType || 'Specialty Food',
+            price: newMenuPrice
+          })
+        });
+        const result = await response.json();
+        if (response.ok && result.success) {
+          addShopifyApiLog('PRODUCT CREATED', `Successfully synced "${newMenuName}" to Shopify. ID: ${result.product.id}`, 'text-emerald-400');
+          // Update the item ID to be the real Shopify variant ID if available
+          const storefrontVariantId = result.product.variants?.[0]?.admin_graphql_api_id || result.product.id;
+          setVendors(prev => prev.map(v => {
+            if (v.id === vendorUser.id) {
+              const updatedItems = v.items.map(item => item.id === newItemId ? { ...item, id: storefrontVariantId } : item);
+              setVendorUser(prevUser => prevUser ? { ...prevUser, items: updatedItems } : null);
+              return { ...v, items: updatedItems };
+            }
+            return v;
+          }));
+        } else {
+          addShopifyApiLog('SYNC ERROR', `Failed to sync "${newMenuName}": ${result.error || 'Unknown error'}`, 'text-rose-400');
+        }
+      } catch (err) {
+        console.error("Shopify menu item sync failed:", err);
+        addShopifyApiLog('SYNC ERROR', `Failed to sync "${newMenuName}": connection failed`, 'text-rose-400');
+      }
+    }
     
     // Reset form
     setNewMenuName('');
