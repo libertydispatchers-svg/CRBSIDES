@@ -29,7 +29,8 @@ import {
   Activity,
   UserCheck,
   User,
-  Locate
+  Locate,
+  Upload
 } from 'lucide-react';
 
 export default function App() {
@@ -83,6 +84,41 @@ export default function App() {
   const [adminSubTab, setAdminSubTab] = useState('drivers'); // 'drivers' | 'finance' | 'vendors' | 'applications'
   const [adminError, setAdminError] = useState('');
 
+  // Vendor User Authentication & Dashboard State
+  const [vendorUser, setVendorUser] = useState(null);
+  const [vendorLoginEmail, setVendorLoginEmail] = useState('');
+  const [vendorLoginPasscode, setVendorLoginPasscode] = useState('');
+  const [vendorLoginError, setVendorLoginError] = useState('');
+  const [vendorActiveSubTab, setVendorActiveSubTab] = useState('menu'); // 'menu' | 'gps' | 'profile'
+  const [newMenuName, setNewMenuName] = useState('');
+  const [newMenuDesc, setNewMenuDesc] = useState('');
+  const [newMenuPrice, setNewMenuPrice] = useState('');
+  const [newMenuImage, setNewMenuImage] = useState('');
+  const [isAddingItem, setIsAddingItem] = useState(false);
+
+  // Edit Menu Item State
+  const [editingItem, setEditingItem] = useState(null);
+  const [editMenuName, setEditMenuName] = useState('');
+  const [editMenuDesc, setEditMenuDesc] = useState('');
+  const [editMenuPrice, setEditMenuPrice] = useState('');
+  const [editMenuImage, setEditMenuImage] = useState('');
+
+  // Vendor Profile Edit State
+  const [profileName, setProfileName] = useState('');
+  const [profileBorough, setProfileBorough] = useState('Manhattan');
+  const [profileTags, setProfileTags] = useState('');
+  const [profileIsOpen, setProfileIsOpen] = useState(true);
+
+  // Synchronize profile forms safely
+  useEffect(() => {
+    if (vendorUser) {
+      setProfileName(vendorUser.name);
+      setProfileBorough(vendorUser.borough.replace(', NYC', '').trim());
+      setProfileTags((vendorUser.tags || []).join(', '));
+      setProfileIsOpen(vendorUser.isOpen);
+    }
+  }, [vendorActiveSubTab, vendorUser]);
+
   // Mock Database State for Admin Dashboard (Synced locally)
   const [drivers, setDrivers] = useState([
     { id: 'd-1', fullName: 'Carlos Rivera', phone: '555-0144', vehicleType: 'e-bike', boroughs: ['Brooklyn'], status: 'approved', deliveries: 18, earnings: 81.00 },
@@ -106,7 +142,17 @@ export default function App() {
     async function loadData() {
       setLoading(true);
       const data = await fetchVendorsAndProducts();
-      setVendors(data);
+      // Map mock emails for easy vendor login simulation
+      const mappedData = data.map(v => ({
+        ...v,
+        email: v.email || (
+          v.id === 'vendor-korean-taco' ? 'tacos@kbbq.com' :
+          v.id === 'vendor-empanada-guy' ? 'empanadas@guy.com' :
+          v.id === 'vendor-halal-kings' ? 'kings@halalcart.com' :
+          `${v.name.toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`
+        )
+      }));
+      setVendors(mappedData);
       setLoading(false);
     }
     loadData();
@@ -430,6 +476,178 @@ export default function App() {
     setActiveTab('directory');
   };
 
+  // Authenticate Vendor User
+  const handleVendorLogin = (e) => {
+    e.preventDefault();
+    setVendorLoginError('');
+    
+    if (vendorLoginPasscode !== 'vendor-123') {
+      setVendorLoginError('Invalid passcode. Try passcode: vendor-123.');
+      return;
+    }
+
+    const foundVendor = vendors.find(v => 
+      v.email?.toLowerCase() === vendorLoginEmail.toLowerCase() || 
+      (vendorLoginEmail.toLowerCase().includes('kings') && v.name.toLowerCase().includes('kings')) ||
+      (vendorLoginEmail.toLowerCase().includes('taco') && v.name.toLowerCase().includes('taco')) ||
+      (vendorLoginEmail.toLowerCase().includes('empanada') && v.name.toLowerCase().includes('empanada'))
+    );
+    
+    if (foundVendor) {
+      setVendorUser(foundVendor);
+      setSelectedPortalVendorId(foundVendor.id);
+    } else {
+      // Auto-register a new vendor so the user can sign in with whatever email they want
+      const emailPrefix = vendorLoginEmail.split('@')[0];
+      const formatName = emailPrefix
+        .split(/[._-]/)
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ') + " Truck";
+      
+      const newVendorId = 'vendor-' + Date.now();
+      const newVendor = {
+        id: newVendorId,
+        name: formatName,
+        email: vendorLoginEmail,
+        borough: 'Manhattan, NYC',
+        isOpen: true,
+        rating: 5.0,
+        tags: ['New', 'Street Food'],
+        items: [
+          {
+            id: 'mock-new-1',
+            name: 'Signature Dish',
+            description: 'Our house special prepared fresh daily.',
+            price: 9.99,
+            image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=60'
+          }
+        ]
+      };
+      
+      setVendors([...vendors, newVendor]);
+      setVendorUser(newVendor);
+      setSelectedPortalVendorId(newVendorId);
+    }
+  };
+
+  // Vendor Logout
+  const handleVendorLogout = () => {
+    setVendorUser(null);
+    setVendorLoginEmail('');
+    setVendorLoginPasscode('');
+    setVendorLoginError('');
+    setActiveTab('directory');
+  };
+
+  // Add a new menu item to the vendor
+  const handleAddMenuItem = (e) => {
+    e.preventDefault();
+    if (!newMenuName || !newMenuPrice || !vendorUser) return;
+    
+    const newItem = {
+      id: 'menu-' + Date.now(),
+      name: newMenuName,
+      description: newMenuDesc,
+      price: parseFloat(newMenuPrice),
+      image: newMenuImage || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=60' // Default fallback photo
+    };
+
+    const updatedVendors = vendors.map(v => {
+      if (v.id === vendorUser.id) {
+        const updatedItems = [...v.items, newItem];
+        // Set vendorUser inside state updates correctly
+        setVendorUser({ ...v, items: updatedItems });
+        return { ...v, items: updatedItems };
+      }
+      return v;
+    });
+
+    setVendors(updatedVendors);
+    
+    // Reset form
+    setNewMenuName('');
+    setNewMenuDesc('');
+    setNewMenuPrice('');
+    setNewMenuImage('');
+    setIsAddingItem(false);
+  };
+
+  // Edit an existing menu item
+  const handleEditMenuItem = (e) => {
+    e.preventDefault();
+    if (!editingItem || !editMenuName || !editMenuPrice || !vendorUser) return;
+
+    const updatedVendors = vendors.map(v => {
+      if (v.id === vendorUser.id) {
+        const updatedItems = v.items.map(item => {
+          if (item.id === editingItem.id) {
+            return {
+              ...item,
+              name: editMenuName,
+              description: editMenuDesc,
+              price: parseFloat(editMenuPrice),
+              image: editMenuImage || item.image
+            };
+          }
+          return item;
+        });
+        setVendorUser({ ...v, items: updatedItems });
+        return { ...v, items: updatedItems };
+      }
+      return v;
+    });
+
+    setVendors(updatedVendors);
+
+    // Reset edit state
+    setEditingItem(null);
+    setEditMenuName('');
+    setEditMenuDesc('');
+    setEditMenuPrice('');
+    setEditMenuImage('');
+  };
+
+  // Delete a menu item
+  const handleDeleteMenuItem = (itemId) => {
+    if (!vendorUser) return;
+    if (!confirm('Are you sure you want to delete this menu item?')) return;
+
+    const updatedVendors = vendors.map(v => {
+      if (v.id === vendorUser.id) {
+        const updatedItems = v.items.filter(item => item.id !== itemId);
+        setVendorUser({ ...v, items: updatedItems });
+        return { ...v, items: updatedItems };
+      }
+      return v;
+    });
+
+    setVendors(updatedVendors);
+  };
+
+  // Update vendor profile details
+  const handleUpdateVendorProfile = (e) => {
+    e.preventDefault();
+    if (!vendorUser) return;
+
+    const updatedVendors = vendors.map(v => {
+      if (v.id === vendorUser.id) {
+        const updated = {
+          ...v,
+          name: profileName,
+          borough: profileBorough + ', NYC',
+          tags: profileTags.split(',').map(t => t.trim()).filter(Boolean),
+          isOpen: profileIsOpen
+        };
+        setVendorUser(updated);
+        return updated;
+      }
+      return v;
+    });
+
+    setVendors(updatedVendors);
+    alert('Store Profile updated successfully!');
+  };
+
   return (
     <div className="min-h-screen bg-black text-white flex flex-col antialiased selection:bg-white selection:text-black">
       
@@ -450,6 +668,15 @@ export default function App() {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap sm:gap-3">
+          <button
+            onClick={() => setActiveTab(activeTab === 'vendor-portal' ? 'directory' : 'vendor-portal')}
+            className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+              activeTab === 'vendor-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+            }`}
+          >
+            Vendor Portal
+          </button>
+
           {isStaffAuthenticated ? (
             <>
               <button
@@ -459,15 +686,6 @@ export default function App() {
                 }`}
               >
                 Admin Panel
-              </button>
-
-              <button
-                onClick={() => setActiveTab(activeTab === 'vendor-portal' ? 'directory' : 'vendor-portal')}
-                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-                  activeTab === 'vendor-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                }`}
-              >
-                Vendor GPS
               </button>
 
               <button
@@ -500,7 +718,7 @@ export default function App() {
               onClick={() => setIsStaffOpen(true)}
               className="px-3 py-1.5 border-2 border-zinc-700 rounded-lg text-xs font-bold uppercase bg-black text-zinc-400 hover:border-white hover:text-white transition-all cursor-pointer font-heading"
             >
-              Staff Access
+              Admin Access
             </button>
           )}
 
@@ -733,53 +951,480 @@ export default function App() {
           </div>
         )}
 
-        {/* Vendor Portal: Live GPS Location Publisher */}
-        {activeTab === 'vendor-portal' && isStaffAuthenticated && (
-          <div className="lg:col-span-12 p-6 flex flex-col justify-center items-center max-w-lg mx-auto w-full space-y-6">
-            <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-6">
-              <div className="text-center">
-                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
-                  Live Dispatch
-                </span>
-                <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Vendor GPS Update</h2>
-                <p className="text-xs text-slate-400 mt-1">Select your truck profile to publish your mobile GPS coordinates to the live map.</p>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Select Active Food Truck</label>
-                  <select
-                    value={selectedPortalVendorId}
-                    onChange={(e) => setSelectedPortalVendorId(e.target.value)}
-                    className="w-full px-3 py-2.5 rounded-lg omny-input text-xs text-white"
-                  >
-                    <option value="">-- Choose Truck --</option>
-                    {vendors.map(v => (
-                      <option key={v.id} value={v.id}>{v.name}</option>
-                    ))}
-                  </select>
+        {/* Vendor Portal Tab: Authentication Gate & Workspace */}
+        {activeTab === 'vendor-portal' && (
+          <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
+            {!vendorUser ? (
+              <div className="max-w-md mx-auto w-full border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
+                <div className="text-center">
+                  <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                    Vendor Workspace
+                  </span>
+                  <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Vendor Sign In</h2>
+                  <p className="text-xs text-slate-400 mt-1">Authenticate as registered food truck staff to manage your live GPS and menu items.</p>
                 </div>
 
-                {gpsStatus && (
-                  <div className="border border-white/20 p-3 rounded-lg text-xs bg-zinc-950/40 font-semibold space-y-1">
-                    <div className="text-white uppercase font-bold tracking-wider">{gpsStatus}</div>
-                    {gpsCoords && (
-                      <div className="text-[10px] text-slate-400 font-mono">
-                        Latitude: {gpsCoords.lat.toFixed(6)} | Longitude: {gpsCoords.lon.toFixed(6)}
-                      </div>
-                    )}
+                {vendorLoginError && (
+                  <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
+                    {vendorLoginError}
                   </div>
                 )}
 
-                <button
-                  onClick={handleUpdateGps}
-                  className="w-full py-4 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer flex items-center justify-center gap-2 font-heading"
-                >
-                  <Locate className="w-5 h-5" />
-                  Tap to Publish Live GPS
-                </button>
+                <form onSubmit={handleVendorLogin} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="e.g. tacos@kbbq.com"
+                      value={vendorLoginEmail}
+                      onChange={(e) => setVendorLoginEmail(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl omny-input text-sm text-white"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Staff Passcode</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Passcode (e.g. vendor-123)"
+                      value={vendorLoginPasscode}
+                      onChange={(e) => setVendorLoginPasscode(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl omny-input text-sm text-white"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                  >
+                    Enter Dashboard
+                  </button>
+                </form>
+
+                <div className="border-t border-white/10 pt-4 text-center">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                    Approved Simulation Accounts
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5 justify-center">
+                    <span onClick={() => { setVendorLoginEmail('tacos@kbbq.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">tacos@kbbq.com</span>
+                    <span onClick={() => { setVendorLoginEmail('empanadas@guy.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">empanadas@guy.com</span>
+                    <span onClick={() => { setVendorLoginEmail('kings@halalcart.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">kings@halalcart.com</span>
+                  </div>
+                  <p className="mt-3 text-[9px] text-zinc-500 leading-normal">
+                    * Logging in with a new email automatically registers a fresh vendor profile so you can manage a new store immediately (Passcode: vendor-123).
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
+                {/* Dashboard Header */}
+                <div className="flex justify-between items-center border-b border-white/20 pb-4 flex-wrap gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full ${vendorUser.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
+                      <span className="text-[9px] font-mono bg-white/10 px-2 py-0.5 rounded border border-white/10 text-slate-300 uppercase font-bold tracking-wider">
+                        {vendorUser.isOpen ? 'Active & Open' : 'Closed'}
+                      </span>
+                      <span className="text-[9px] text-slate-500 font-mono">
+                        {vendorUser.email}
+                      </span>
+                    </div>
+                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-1">{vendorUser.name}</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">{vendorUser.borough} &bull; Rating: {vendorUser.rating} ★</p>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setVendorActiveSubTab('menu')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        vendorActiveSubTab === 'menu' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Menu Manager
+                    </button>
+                    <button
+                      onClick={() => setVendorActiveSubTab('gps')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        vendorActiveSubTab === 'gps' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Live GPS
+                    </button>
+                    <button
+                      onClick={() => setVendorActiveSubTab('profile')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        vendorActiveSubTab === 'profile' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Store Profile
+                    </button>
+                    <button
+                      onClick={handleVendorLogout}
+                      className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                </div>
+
+                {/* Subtab: Menu Manager */}
+                {vendorActiveSubTab === 'menu' && (
+                  <div className="space-y-6">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Store Menu / Dishes</h3>
+                      <button
+                        onClick={() => {
+                          setIsAddingItem(!isAddingItem);
+                          setEditingItem(null);
+                        }}
+                        className="px-3 py-1 border-2 border-white rounded-lg text-xs font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all"
+                      >
+                        {isAddingItem ? 'Cancel' : 'Add Menu Item'}
+                      </button>
+                    </div>
+
+                    {/* Add Menu Item Form */}
+                    {isAddingItem && (
+                      <form onSubmit={handleAddMenuItem} className="border-2 border-white p-4 rounded-xl bg-zinc-950/40 space-y-4">
+                        <h4 className="text-xs font-bold uppercase text-white tracking-wider border-b border-white/10 pb-2">Add New Plate</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Dish Name</label>
+                              <input
+                                type="text"
+                                required
+                                value={newMenuName}
+                                onChange={(e) => setNewMenuName(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white"
+                                placeholder="e.g. Spicy Pork Burrito"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Price ($)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                required
+                                value={newMenuPrice}
+                                onChange={(e) => setNewMenuPrice(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white"
+                                placeholder="e.g. 10.99"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Description</label>
+                              <textarea
+                                value={newMenuDesc}
+                                onChange={(e) => setNewMenuDesc(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white h-20"
+                                placeholder="What goes into this dish? ingredients, details..."
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col justify-between">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Plate Photo</label>
+                              <div className="border-2 border-dashed border-white/20 rounded-xl p-4 text-center hover:border-white transition-all cursor-pointer relative bg-zinc-950">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files[0];
+                                    if (file) {
+                                      const reader = new FileReader();
+                                      reader.onloadend = () => setNewMenuImage(reader.result);
+                                      reader.readAsDataURL(file);
+                                    }
+                                  }}
+                                  className="absolute inset-0 opacity-0 cursor-pointer"
+                                />
+                                {newMenuImage ? (
+                                  <div className="space-y-2 flex flex-col items-center">
+                                    <img src={newMenuImage} alt="Preview" className="w-24 h-24 object-cover rounded-lg border-2 border-white" />
+                                    <span className="text-[9px] text-emerald-400 uppercase font-bold">Photo Loaded</span>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1 py-4">
+                                    <Upload className="w-5 h-5 mx-auto text-slate-400" />
+                                    <span className="text-[11px] text-white font-bold uppercase tracking-wider block">Upload Photo</span>
+                                    <span className="text-[9px] text-slate-500 block">PNG/JPG up to 2MB</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <button
+                              type="submit"
+                              className="w-full mt-4 py-2.5 border-2 border-white rounded-lg bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                            >
+                              Save New Plate
+                            </button>
+                          </div>
+                        </div>
+                      </form>
+                    )}
+
+                    {/* Edit Menu Item Form */}
+                    {editingItem && (
+                      <form onSubmit={handleEditMenuItem} className="border-2 border-white p-4 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="flex justify-between items-center border-b border-white/10 pb-2">
+                          <h4 className="text-xs font-bold uppercase text-white tracking-wider">Edit Plate: {editingItem.name}</h4>
+                          <button
+                            type="button"
+                            onClick={() => setEditingItem(null)}
+                            className="text-xs text-rose-500 font-bold uppercase hover:underline"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="space-y-4">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Dish Name</label>
+                              <input
+                                type="text"
+                                required
+                                value={editMenuName}
+                                onChange={(e) => setEditMenuName(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Price ($)</label>
+                              <input
+                                type="number"
+                                step="0.01"
+                                required
+                                value={editMenuPrice}
+                                onChange={(e) => setEditMenuPrice(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">Description</label>
+                              <textarea
+                                value={editMenuDesc}
+                                onChange={(e) => setEditMenuDesc(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg omny-input text-xs text-white h-20"
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex flex-col justify-between">
+                            <div>
+                              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Change Photo</label>
+                              <div className="border-2 border-dashed border-white/20 rounded-xl p-4 text-center hover:border-white transition-all cursor-pointer relative bg-zinc-950">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files[0];
+                                    if (file) {
+                                      const reader = new FileReader();
+                                      reader.onloadend = () => setEditMenuImage(reader.result);
+                                      reader.readAsDataURL(file);
+                                    }
+                                  }}
+                                  className="absolute inset-0 opacity-0 cursor-pointer"
+                                />
+                                {(editMenuImage || editingItem.image) ? (
+                                  <div className="space-y-2 flex flex-col items-center">
+                                    <img src={editMenuImage || editingItem.image} alt="Preview" className="w-24 h-24 object-cover rounded-lg border-2 border-white" />
+                                    <span className="text-[9px] text-slate-400">Tap or drag to replace photo</span>
+                                  </div>
+                                ) : (
+                                  <div className="space-y-1 py-4">
+                                    <Upload className="w-5 h-5 mx-auto text-slate-400" />
+                                    <span className="text-[11px] text-white font-bold uppercase tracking-wider block">Choose File</span>
+                                    <span className="text-[9px] text-slate-500 block">PNG/JPG up to 2MB</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <button
+                              type="submit"
+                              className="w-full mt-4 py-2.5 border-2 border-white rounded-lg bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                            >
+                              Update Plate Details
+                            </button>
+                          </div>
+                        </div>
+                      </form>
+                    )}
+
+                    {/* Items List Table */}
+                    <div className="border border-white/10 rounded-xl bg-zinc-950/30 overflow-hidden">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-white/20 font-bold uppercase text-slate-400 bg-white/5">
+                              <th className="py-3 px-4">Plate Photo</th>
+                              <th className="py-3 px-4">Dish Info</th>
+                              <th className="py-3 px-4 text-right">Price</th>
+                              <th className="py-3 px-4 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-white/10">
+                            {vendorUser.items.length === 0 ? (
+                              <tr>
+                                <td colSpan="4" className="py-8 text-center text-slate-500 uppercase tracking-widest text-[10px]">No plates added yet.</td>
+                              </tr>
+                            ) : (
+                              vendorUser.items.map(item => (
+                                <tr key={item.id} className="hover:bg-white/5 transition-colors">
+                                  <td className="py-3 px-4">
+                                    <div className="w-14 h-14 border-2 border-white rounded-lg overflow-hidden bg-black flex-shrink-0">
+                                      <img src={item.image} alt={item.name} className="w-full h-full object-cover" />
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-4">
+                                    <div className="font-bold text-white uppercase text-sm">{item.name}</div>
+                                    <div className="text-slate-400 text-[11px] mt-0.5 max-w-md line-clamp-2">{item.description || 'No description provided.'}</div>
+                                  </td>
+                                  <td className="py-3 px-4 text-right font-mono font-bold text-white text-sm">${item.price.toFixed(2)}</td>
+                                  <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
+                                    <button
+                                      onClick={() => {
+                                        setEditingItem(item);
+                                        setEditMenuName(item.name);
+                                        setEditMenuDesc(item.description);
+                                        setEditMenuPrice(item.price.toString());
+                                        setEditMenuImage(item.image);
+                                        setIsAddingItem(false);
+                                      }}
+                                      className="px-2.5 py-1 border border-white rounded text-[10px] font-bold uppercase hover:bg-white hover:text-black transition-all"
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteMenuItem(item.id)}
+                                      className="px-2.5 py-1 border border-red-500 text-red-500 rounded text-[10px] font-bold uppercase hover:bg-red-500 hover:text-white transition-all"
+                                    >
+                                      Delete
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Subtab: Live GPS location */}
+                {vendorActiveSubTab === 'gps' && (
+                  <div className="space-y-6">
+                    <div className="text-center max-w-md mx-auto py-4">
+                      <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                        Live Dispatch Ledger
+                      </span>
+                      <h3 className="text-lg font-bold uppercase text-white font-heading mt-3">GPS Location Publisher</h3>
+                      <p className="text-xs text-slate-400 mt-1">Publish your street location coordinates directly to the map discoverer.</p>
+                    </div>
+
+                    <div className="max-w-md mx-auto border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                      {gpsStatus && (
+                        <div className="border border-white/25 p-3 rounded-lg text-xs bg-black font-semibold space-y-1 text-center">
+                          <div className="text-white uppercase font-bold tracking-wider">{gpsStatus}</div>
+                          {gpsCoords && (
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              Latitude: {gpsCoords.lat.toFixed(6)} | Longitude: {gpsCoords.lon.toFixed(6)}
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handleUpdateGps}
+                        className="w-full py-4 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer flex items-center justify-center gap-2 font-heading"
+                      >
+                        <Locate className="w-5 h-5" />
+                        Tap to Publish Live GPS
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Subtab: Store Profile */}
+                {vendorActiveSubTab === 'profile' && (
+                  <form onSubmit={handleUpdateVendorProfile} className="space-y-4 max-w-md mx-auto">
+                    <div className="text-center max-w-md mx-auto py-4">
+                      <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                        Store Registry
+                      </span>
+                      <h3 className="text-lg font-bold uppercase text-white font-heading mt-3">Edit Store Profile</h3>
+                      <p className="text-xs text-slate-400 mt-1">Configure business identifiers and tags visible in the directory.</p>
+                    </div>
+
+                    <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Name</label>
+                        <input
+                          type="text"
+                          required
+                          value={profileName}
+                          onChange={(e) => setProfileName(e.target.value)}
+                          className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Operating Borough</label>
+                        <select
+                          value={profileBorough}
+                          onChange={(e) => setProfileBorough(e.target.value)}
+                          className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                        >
+                          <option value="Manhattan">Manhattan</option>
+                          <option value="Brooklyn">Brooklyn</option>
+                          <option value="Queens">Queens</option>
+                          <option value="Bronx">Bronx</option>
+                          <option value="Staten Island">Staten Island</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Tags (Comma-separated)</label>
+                        <input
+                          type="text"
+                          value={profileTags}
+                          onChange={(e) => setProfileTags(e.target.value)}
+                          className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                          placeholder="e.g. Mexican, Tacos, BBQ"
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-3 pt-2">
+                        <input
+                          type="checkbox"
+                          id="profileIsOpen"
+                          checked={profileIsOpen}
+                          onChange={(e) => setProfileIsOpen(e.target.checked)}
+                          className="w-4 h-4 border-2 border-white rounded bg-black accent-white"
+                        />
+                        <label htmlFor="profileIsOpen" className="text-xs font-bold uppercase text-white tracking-wide cursor-pointer">
+                          Open for Live Orders
+                        </label>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full mt-4 py-3 border-2 border-white rounded-lg bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                      >
+                        Save Profile Settings
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -1343,9 +1988,18 @@ export default function App() {
                 const cartQty = cart.find(i => i.id === item.id)?.quantity || 0;
                 return (
                   <div key={item.id} className="py-4 first:pt-0 last:pb-0 flex gap-4 justify-between items-center">
-                    <div className="space-y-1 flex-1 pr-4">
-                      <h4 className="font-bold text-white uppercase text-base">{item.name}</h4>
-                      <p className="text-xs text-slate-400 leading-relaxed">{item.description}</p>
+                    {item.image && (
+                      <div className="w-16 h-16 sm:w-20 sm:h-20 border-2 border-white rounded-xl overflow-hidden flex-shrink-0 bg-zinc-950 relative">
+                        <img 
+                          src={item.image} 
+                          alt={item.name} 
+                          className="w-full h-full object-cover" 
+                        />
+                      </div>
+                    )}
+                    <div className="space-y-1 flex-1 pr-4 min-w-0">
+                      <h4 className="font-bold text-white uppercase text-base truncate">{item.name}</h4>
+                      <p className="text-xs text-slate-400 leading-relaxed line-clamp-2 sm:line-clamp-none">{item.description}</p>
                       <span className="text-sm font-bold text-white block pt-1">${item.price.toFixed(2)}</span>
                     </div>
 
