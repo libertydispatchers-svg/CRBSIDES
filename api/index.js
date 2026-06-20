@@ -3,9 +3,15 @@ const cors = require("cors");
 const path = require("path");
 const axios = require("axios");
 
+const crypto = require("crypto");
+
 const app = express();
 app.use(cors({ origin: true }));
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
 // Serve compiled React frontend (going up one directory for api/ folder structure)
 app.use(express.static(path.join(__dirname, "..", "frontend", "dist")));
@@ -173,6 +179,23 @@ app.get("/api/finance", (req, res) => {
 // Shopify Webhook Ingestion Endpoint
 app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res) => {
   try {
+    // Shopify HMAC signature verification (Optional check if secret is configured in Vercel env)
+    const hmacHeader = req.get("X-Shopify-Hmac-Sha256");
+    const webhookSecret = process.env.SHOPIFY_WEBHOOK_SECRET;
+
+    if (webhookSecret && hmacHeader) {
+      const hash = crypto
+        .createHmac("sha256", webhookSecret)
+        .update(req.rawBody, "utf8")
+        .digest("base64");
+
+      if (hash !== hmacHeader) {
+        console.warn("[Webhook] Shopify HMAC signature verification failed!");
+        return res.status(401).json({ error: "Unauthorized: HMAC verification failed" });
+      }
+      console.log("[Webhook] Shopify HMAC signature successfully verified.");
+    }
+
     const payload = req.body;
     const orderId = String(payload.id || payload.order_number || `shopify-${Date.now()}`);
 
