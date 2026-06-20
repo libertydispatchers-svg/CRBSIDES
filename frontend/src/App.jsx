@@ -6,6 +6,7 @@ import {
   saveShopifyConfig, 
   isShopifyConnected 
 } from './shopify';
+import logo from './assets/logo.png';
 import { 
   Search, 
   ShoppingBag, 
@@ -874,15 +875,8 @@ export default function App() {
       {/* Header */}
       <header className="border-b-2 border-white px-6 py-4 flex justify-between items-center sticky top-0 z-40 bg-black">
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1 cursor-pointer" onClick={() => setActiveTab('directory')}>
-            <span className="text-xl font-bold tracking-tighter text-white uppercase font-heading">
-              CURBSIDES
-            </span>
-            <div className="flex flex-col gap-0.5 ml-2">
-              <span className="w-4 h-0.5 bg-white"></span>
-              <span className="w-4 h-0.5 bg-white"></span>
-              <span className="w-4 h-0.5 bg-white"></span>
-            </div>
+          <div className="flex items-center cursor-pointer" onClick={() => setActiveTab('directory')}>
+            <img src={logo} alt="CURBSIDES Logo" className="h-10 w-auto object-contain" />
           </div>
         </div>
 
