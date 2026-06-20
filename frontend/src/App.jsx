@@ -284,6 +284,21 @@ export default function App() {
     }
   }, [activeTab]);
 
+  // URL vendor selection listener (Deep Linking from Shopify)
+  useEffect(() => {
+    if (vendors.length > 0) {
+      const params = new URLSearchParams(window.location.search);
+      const vendorId = params.get('vendor');
+      if (vendorId) {
+        const found = vendors.find(v => v.id === vendorId || v.id.toLowerCase().includes(vendorId.toLowerCase()));
+        if (found) {
+          setSelectedVendor(found);
+          setActiveTab('directory');
+        }
+      }
+    }
+  }, [vendors]);
+
   // Shopify OAuth Handshake Listener
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
