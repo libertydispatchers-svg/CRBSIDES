@@ -51,6 +51,8 @@ export default function App() {
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [shopDomain, setShopDomain] = useState('');
   const [storefrontToken, setStorefrontToken] = useState('');
+  const [adminTokenInput, setAdminTokenInput] = useState('');
+  const [showShopifyBanner, setShowShopifyBanner] = useState(false);
   const [configSuccess, setConfigSuccess] = useState(false);
 
   // Tab View for Mobile Layout and Router Simulation
@@ -170,6 +172,30 @@ export default function App() {
   const [vendorApplications, setVendorApplications] = useState([
     { id: 'v-app-1', name: 'Halal Cart Kings', email: 'kings@halalcart.com', phone: '555-9000', foodType: 'Gyros & Rice', borough: 'Manhattan', status: 'pending' }
   ]);
+  const [shopifyLogs, setShopifyLogs] = useState([
+    { timestamp: '2026-06-20 02:40:12', type: 'API FETCH', message: 'Querying 100 products from store catalog...', color: 'text-white' },
+    { timestamp: '2026-06-20 02:40:13', type: 'RESOLVED', message: 'Found 4 active food trucks on storefront API.', color: 'text-slate-400' },
+    { timestamp: '2026-06-20 02:40:13', type: 'SYNC SUCCESS', message: 'Local registry updated with 10 active products.', color: 'text-emerald-400' },
+    { timestamp: '2026-06-20 02:42:01', type: 'MUTATION', message: 'Generating checkout token for cart items...', color: 'text-white' },
+    { timestamp: '2026-06-20 02:42:02', type: 'CHECKOUT URL', message: 'https://checkout.shopify.com/sandbox-checkout-simulation', color: 'text-slate-400' }
+  ]);
+
+  const [shipdayLogs, setShipdayLogs] = useState([
+    { timestamp: '2026-06-20 02:35:10', type: 'WEBHOOK POST', message: 'X-Shopify-Hmac-Sha256 verified successfully.', color: 'text-slate-300' },
+    { timestamp: '2026-06-20 02:35:11', type: 'FORWARDING', message: 'Posting payload to https://dispatch.shipday.com/shopify/order...', color: 'text-amber-500' },
+    { timestamp: '2026-06-20 02:35:12', type: 'SHIPDAY ACK', message: 'Order shopify-1001 synced to dispatch board.', color: 'text-emerald-400' },
+    { timestamp: '2026-06-20 02:38:45', type: 'WEBHOOK POST', message: 'X-Shopify-Hmac-Sha256 verified successfully.', color: 'text-slate-300' },
+    { timestamp: '2026-06-20 02:38:46', type: 'FORWARDING', message: 'Posting payload to Shipday dispatch engine...', color: 'text-amber-500' },
+    { timestamp: '2026-06-20 02:38:47', type: 'SHIPDAY ACK', message: 'Order shopify-1002 synced to dispatch board.', color: 'text-emerald-400' }
+  ]);
+
+  const addShopifyApiLog = (type, message, color = 'text-white') => {
+    const time = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    setShopifyLogs(prev => [
+      ...prev,
+      { timestamp: time, type, message, color }
+    ]);
+  };
   const [financeLogs, setFinanceLogs] = useState([
     { id: 'f-1', orderId: 'shopify-1001', distance: 1.8, subtotal: 36.00, vendorCommission: 3.60, driverGross: 3.60, driverCommission: 0.36, driverPay: 3.24, platformRev: 3.96, timestamp: '2026-06-19T12:00:00Z' },
     { id: 'f-2', orderId: 'shopify-1002', distance: 0.8, subtotal: 16.00, vendorCommission: 1.60, driverGross: 1.60, driverCommission: 0.16, driverPay: 1.44, platformRev: 1.76, timestamp: '2026-06-19T12:15:00Z' }
@@ -211,7 +237,71 @@ export default function App() {
     const config = getShopifyConfig();
     setShopDomain(config.domain);
     setStorefrontToken(config.token);
+    setAdminTokenInput(localStorage.getItem('curbsides_shopify_admin_token') || '');
   }, [isConfigOpen]);
+
+  // Shopify OAuth Handshake Listener
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const shop = params.get('shop');
+    const hmac = params.get('hmac');
+    const isInstalled = params.get('shopify_installed');
+    const adminToken = params.get('admin_token');
+    const storefrontToken = params.get('storefront_token');
+
+    // Case 1: Shopify redirected to our App URL with shop & hmac -> show banner if not already connected
+    if (shop && hmac && !isInstalled) {
+      const savedToken = localStorage.getItem('curbsides_shopify_admin_token');
+      const savedConfigStr = localStorage.getItem('curbsides_shopify_config');
+      let savedShop = "";
+      if (savedConfigStr) {
+        try {
+          savedShop = JSON.parse(savedConfigStr).domain;
+        } catch (e) {}
+      }
+
+      const cleanShopName = shop.replace(/^https?:\/\//, "").trim();
+      const cleanSavedShopName = savedShop.replace(/^https?:\/\//, "").trim();
+
+      const alreadyConnected = savedToken && cleanSavedShopName && 
+        (cleanSavedShopName === cleanShopName || cleanSavedShopName.includes(cleanShopName) || cleanShopName.includes(cleanSavedShopName));
+
+      if (alreadyConnected) {
+        console.log(`[Shopify Handshake] Shop "${shop}" is already connected. Cleaning URL parameters.`);
+        const cleanUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, cleanUrl);
+      } else {
+        // Show banner to prompt connection
+        setShowShopifyBanner(true);
+      }
+    }
+
+    // Case 2: OAuth callback finished and redirected here with tokens
+    if (isInstalled && shop && adminToken) {
+      console.log(`[Shopify Handshake] OAuth handshake completed successfully for "${shop}".`);
+      
+      const sfToken = storefrontToken || '';
+      // Save storefront token config
+      saveShopifyConfig(shop, sfToken);
+      // Save admin access token
+      localStorage.setItem('curbsides_shopify_admin_token', adminToken);
+      
+      // Sync local states
+      setShopDomain(shop);
+      setStorefrontToken(sfToken);
+      setAdminTokenInput(adminToken);
+      
+      addShopifyApiLog('OAUTH SUCCESS', `Shopify Admin API token (shpat_...) received and securely stored in client.`, 'text-emerald-400');
+      addShopifyApiLog('STOREFRONT SYNC', `Storefront Access Token (shpca_...) successfully loaded. Store: ${shop}`, 'text-emerald-400');
+      
+      alert(`🎉 Shopify store "${shop}" successfully authorized and connected!`);
+
+      // Clean parameters from browser URL bar to keep it beautiful
+      const cleanUrl = window.location.origin + window.location.pathname;
+      window.history.replaceState({}, document.title, cleanUrl);
+      setShowShopifyBanner(false);
+    }
+  }, []);
 
   // Sync Finance and Drivers from local operations server if running
   useEffect(() => {
@@ -395,11 +485,26 @@ export default function App() {
   const handleSaveConfig = (e) => {
     e.preventDefault();
     saveShopifyConfig(shopDomain, storefrontToken);
+    localStorage.setItem('curbsides_shopify_admin_token', adminTokenInput);
     setConfigSuccess(true);
     setTimeout(() => {
       setConfigSuccess(false);
       setIsConfigOpen(false);
     }, 1500);
+  };
+
+  // Start Shopify OAuth flow
+  const handleStartOAuth = () => {
+    const params = new URLSearchParams(window.location.search);
+    let shop = params.get('shop') || shopDomain;
+    if (!shop || !shop.trim()) {
+      alert("Please enter your Shopify Domain first.");
+      return;
+    }
+    const cleanShop = shop.replace(/^https?:\/\//, "").trim();
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    // Use window.top to breakout of the Shopify Admin iframe
+    window.top.location.href = `${BACKEND_URL}/api/auth/shopify?shop=${encodeURIComponent(cleanShop)}`;
   };
 
   // Search Order for Custom Customer Tracking
@@ -464,6 +569,59 @@ export default function App() {
     setVendorEmail('');
     setVendorPhone('');
     setVendorFoodType('');
+  };
+
+  // Handle Vendor Approval and Sync to Shopify Product Catalog
+  const handleApproveVendor = async (app) => {
+    // Update application status to approved
+    setVendorApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: 'approved' } : a));
+    
+    const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token');
+    const shopifyConfig = localStorage.getItem('curbsides_shopify_config');
+    
+    let shopDomain = "";
+    if (shopifyConfig) {
+      try {
+        shopDomain = JSON.parse(shopifyConfig).domain;
+      } catch(e) {}
+    }
+    
+    if (shopifyAdminToken && shopDomain) {
+      addShopifyApiLog('CREATING PRODUCT', `Initiated Shopify product creation for vendor "${app.name}"...`, 'text-white');
+      
+      try {
+        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+        const response = await fetch(`${BACKEND_URL}/api/shopify/create-product`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            shop: shopDomain,
+            admin_token: shopifyAdminToken,
+            title: `${app.foodType} Starter Plate`,
+            vendorName: app.name,
+            borough: app.borough,
+            foodType: app.foodType,
+            price: "12.00"
+          })
+        });
+        
+        const resData = await response.json();
+        if (resData.success) {
+          addShopifyApiLog('PRODUCT CREATED', `Starter product "${app.foodType} Starter Plate" (ID: ${resData.product.id}) created for "${app.name}".`, 'text-emerald-400');
+          alert(`Successfully approved vendor and created their starter product in Shopify!`);
+        } else {
+          throw new Error(resData.error || "Unknown API error");
+        }
+      } catch (err) {
+        console.error("Failed to create product in Shopify:", err);
+        addShopifyApiLog('PRODUCT ERROR', `Failed to create Shopify product for "${app.name}": ${err.message}`, 'text-amber-500');
+        alert(`Vendor application approved, but failed to sync to Shopify: ${err.message}`);
+      }
+    } else {
+      alert(`Email invitation sent to: ${app.email}. Connect them as staff in Shopify Settings. (Shopify integration not active - skipping product creation)`);
+    }
   };
 
   // Handle Vendor GPS Location Update
@@ -872,6 +1030,30 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black text-white flex flex-col antialiased selection:bg-white selection:text-black">
       
+      {/* Shopify Installation Banner */}
+      {showShopifyBanner && (
+        <div className="bg-emerald-500 text-black px-6 py-3 text-xs font-bold uppercase tracking-wider flex justify-between items-center border-b-2 border-white animate-fade-in z-50">
+          <div className="flex items-center gap-2">
+            <span className="bg-black text-white px-2 py-0.5 rounded text-[10px]">INTEGRATION</span>
+            <span>Shopify App setup detected. Click connect to authorize the integration.</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={handleStartOAuth}
+              className="px-3.5 py-1.5 bg-black text-white hover:bg-white hover:text-black rounded border border-black font-extrabold transition-all cursor-pointer"
+            >
+              Connect Store
+            </button>
+            <button 
+              onClick={() => setShowShopifyBanner(false)}
+              className="text-black hover:text-white p-1 transition-all cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="border-b-2 border-white px-6 py-4 flex justify-between items-center sticky top-0 z-40 bg-black">
         <div className="flex items-center gap-4">
@@ -2403,10 +2585,7 @@ export default function App() {
                               <td className="py-3 uppercase text-[10px] font-bold text-amber-400">{app.status}</td>
                               <td className="py-3 text-right">
                                 <button
-                                  onClick={() => {
-                                    setVendorApplications(vendorApplications.map(a => a.id === app.id ? { ...a, status: 'approved' } : a));
-                                    alert(`Email invitation sent to: ${app.email}. Connect them as staff in Shopify Settings.`);
-                                  }}
+                                  onClick={() => handleApproveVendor(app)}
                                   className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all"
                                 >
                                   {app.status === 'approved' ? 'Invited ✓' : 'Invite Staff'}
@@ -2603,11 +2782,17 @@ export default function App() {
                     <div className="flex justify-between items-center border-b border-white/10 pb-3 flex-wrap gap-2">
                       <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Shopify & Shipday Integration Hub</h3>
                       <div className="flex gap-2">
+                        {shopDomain && storefrontToken && adminTokenInput ? (
+                          <span className="flex items-center gap-1.5 text-[9px] bg-emerald-950/20 border border-emerald-500/30 px-2 py-0.5 rounded text-emerald-400 font-bold uppercase tracking-wider">
+                            <Check className="w-3 h-3" /> Shopify Connected
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1.5 text-[9px] bg-amber-950/20 border border-amber-500/30 px-2 py-0.5 rounded text-amber-400 font-bold uppercase tracking-wider">
+                            Shopify Disconnected
+                          </span>
+                        )}
                         <span className="flex items-center gap-1.5 text-[9px] bg-emerald-950/20 border border-emerald-500/30 px-2 py-0.5 rounded text-emerald-400 font-bold uppercase tracking-wider">
-                          <Check className="w-3 h-3" /> Shopify Connected
-                        </span>
-                        <span className="flex items-center gap-1.5 text-[9px] bg-emerald-950/20 border border-emerald-500/30 px-2 py-0.5 rounded text-emerald-400 font-bold uppercase tracking-wider">
-                          <Check className="w-3 h-3" /> Shipday Webhook Active
+                          <Check className="w-3 h-3" /> Shipday Active
                         </span>
                       </div>
                     </div>
@@ -2624,11 +2809,11 @@ export default function App() {
                         </div>
                         
                         <div className="space-y-2.5 font-mono text-[10px] bg-black p-3.5 border border-white/10 rounded-lg overflow-y-auto max-h-[220px]">
-                          <div className="text-slate-500">[2026-06-20 02:40:12] <span className="text-white">API FETCH:</span> Querying 100 products from store catalog...</div>
-                          <div className="text-slate-500">[2026-06-20 02:40:13] <span className="text-slate-400">RESOLVED:</span> Found 4 active food trucks on storefront API.</div>
-                          <div className="text-slate-500">[2026-06-20 02:40:13] <span className="text-emerald-400">SYNC SUCCESS:</span> Local registry updated with 10 active products.</div>
-                          <div className="text-slate-500">[2026-06-20 02:42:01] <span className="text-white">MUTATION:</span> Generating checkout token for cart items...</div>
-                          <div className="text-slate-500">[2026-06-20 02:42:02] <span className="text-slate-400">CHECKOUT URL:</span> https://checkout.shopify.com/sandbox-checkout-simulation</div>
+                          {shopifyLogs.map((log, idx) => (
+                            <div key={idx} className="text-slate-500">
+                              [{log.timestamp}] <span className={log.color}>{log.type}:</span> {log.message}
+                            </div>
+                          ))}
                         </div>
 
                         <div className="text-[10px] text-slate-400 leading-normal">
@@ -2647,12 +2832,11 @@ export default function App() {
                         </div>
                         
                         <div className="space-y-2.5 font-mono text-[10px] bg-black p-3.5 border border-white/10 rounded-lg overflow-y-auto max-h-[220px]">
-                          <div className="text-slate-500">[2026-06-20 02:35:10] <span className="text-slate-300">WEBHOOK POST:</span> X-Shopify-Hmac-Sha256 verified successfully.</div>
-                          <div className="text-slate-500">[2026-06-20 02:35:11] <span className="text-amber-500">FORWARDING:</span> Posting payload to https://dispatch.shipday.com/shopify/order...</div>
-                          <div className="text-slate-500">[2026-06-20 02:35:12] <span className="text-emerald-400">SHIPDAY ACK:</span> Order shopify-1001 synced to dispatch board.</div>
-                          <div className="text-slate-500">[2026-06-20 02:38:45] <span className="text-slate-300">WEBHOOK POST:</span> X-Shopify-Hmac-Sha256 verified successfully.</div>
-                          <div className="text-slate-500">[2026-06-20 02:38:46] <span className="text-amber-500">FORWARDING:</span> Posting payload to Shipday dispatch engine...</div>
-                          <div className="text-slate-500">[2026-06-20 02:38:47] <span className="text-emerald-400">SHIPDAY ACK:</span> Order shopify-1002 synced to dispatch board.</div>
+                          {shipdayLogs.map((log, idx) => (
+                            <div key={idx} className="text-slate-500">
+                              [{log.timestamp}] <span className={log.color}>{log.type}:</span> {log.message}
+                            </div>
+                          ))}
                         </div>
 
                         <div className="text-[10px] text-slate-400 leading-normal">
@@ -3285,10 +3469,28 @@ export default function App() {
                 />
               </div>
 
-              <div className="pt-2">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Admin API Access Token (shpat_...)</label>
+                <input
+                  type="password"
+                  placeholder="shpat_..."
+                  value={adminTokenInput}
+                  onChange={(e) => setAdminTokenInput(e.target.value)}
+                  className="w-full px-3 py-2.5 rounded-lg omny-input text-xs text-white"
+                />
+              </div>
+
+              <div className="pt-2 flex flex-col gap-2">
+                <button
+                  type="button"
+                  onClick={handleStartOAuth}
+                  className="w-full py-2.5 border-2 border-white rounded-lg bg-black text-white hover:bg-white hover:text-black font-bold text-xs uppercase transition-all cursor-pointer"
+                >
+                  Connect via Shopify OAuth
+                </button>
                 <button
                   type="submit"
-                  className="w-full py-3 border-2 border-white rounded-lg bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer"
+                  className="w-full py-2.5 border-2 border-white rounded-lg bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer"
                 >
                   Save Connection Config
                 </button>
@@ -3359,9 +3561,9 @@ export default function App() {
           {!isStaffAuthenticated && (
             <button
               onClick={() => setIsStaffOpen(true)}
-              className="text-[10px] text-zinc-600 hover:text-white transition-colors uppercase font-bold tracking-wider cursor-pointer bg-transparent border-0"
+              className="text-[10px] text-slate-400 hover:text-white transition-colors uppercase font-extrabold tracking-widest cursor-pointer bg-transparent border-0 underline"
             >
-              Staff Access
+              Staff Access (Admin Console)
             </button>
           )}
         </div>

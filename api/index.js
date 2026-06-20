@@ -176,6 +176,191 @@ app.get("/api/finance", (req, res) => {
   res.json(db.finance);
 });
 
+// --- SHOPIFY OAUTH HANDSHAKE ENDPOINTS ---
+
+// 1. Authorization Redirect Endpoint
+app.get("/api/auth/shopify", (req, res) => {
+  let shop = req.query.shop;
+  if (!shop) {
+    return res.status(400).send("Missing shop query parameter");
+  }
+
+  // Sanitize shop domain
+  shop = shop.replace(/^https?:\/\//, "").trim();
+  if (!shop.includes(".myshopify.com")) {
+    shop = `${shop}.myshopify.com`;
+  }
+
+  if (!/^[a-zA-Z0-9.-]+\.myshopify\.com$/.test(shop)) {
+    return res.status(400).send("Invalid shop domain format");
+  }
+
+  const client_id = process.env.SHOPIFY_CLIENT_ID;
+  const scopes = "write_products,read_products";
+  
+  // Build absolute callback URI.
+  // req.headers.host contains the host name (e.g. curbsides.vercel.app or localhost:5001)
+  const protocol = req.headers["x-forwarded-proto"] || "https";
+  const host = req.headers.host;
+  const redirect_uri = `${protocol}://${host}/api/auth/shopify/callback`;
+
+  console.log(`[Shopify OAuth] Redirecting shop "${shop}" to authorize...`);
+  const authorizeUrl = `https://${shop}/admin/oauth/authorize?client_id=${client_id}&scope=${scopes}&redirect_uri=${encodeURIComponent(redirect_uri)}`;
+  
+  res.redirect(authorizeUrl);
+});
+
+// 2. OAuth Callback Endpoint
+app.get("/api/auth/shopify/callback", async (req, res) => {
+  const { shop, hmac, code } = req.query;
+
+  if (!shop || !hmac || !code) {
+    return res.status(400).send("Missing required OAuth parameters: shop, hmac, and code are required.");
+  }
+
+  const client_id = process.env.SHOPIFY_CLIENT_ID;
+  const client_secret = process.env.SHOPIFY_CLIENT_SECRET;
+
+  // Verify HMAC signature
+  const params = { ...req.query };
+  delete params.hmac;
+
+  // Sort keys alphabetically
+  const sortedKeys = Object.keys(params).sort();
+  const message = sortedKeys
+    .map(key => `${key}=${params[key]}`)
+    .join("&");
+
+  const calculatedHmac = crypto
+    .createHmac("sha256", client_secret)
+    .update(message)
+    .digest("hex");
+
+  try {
+    const match = crypto.timingSafeEqual(
+      Buffer.from(calculatedHmac, "utf-8"),
+      Buffer.from(hmac, "utf-8")
+    );
+    if (!match) {
+      console.warn("[Shopify OAuth] HMAC validation failed!");
+      return res.status(400).send("Security verification failed: HMAC mismatch");
+    }
+  } catch (err) {
+    console.error("[Shopify OAuth] HMAC timingSafeEqual error:", err.message);
+    return res.status(400).send("Security verification failed: HMAC calculation error");
+  }
+
+  console.log(`[Shopify OAuth] HMAC verified. Requesting permanent access token for "${shop}"...`);
+
+  try {
+    // Exchange temporary code for permanent access token
+    const tokenResponse = await axios.post(`https://${shop}/admin/oauth/access_token`, {
+      client_id,
+      client_secret,
+      code
+    });
+
+    const accessToken = tokenResponse.data.access_token;
+    console.log(`[Shopify OAuth] Admin API Access token obtained successfully.`);
+
+    // Generate/fetch Storefront Access Token
+    let storefrontToken = "";
+    try {
+      console.log(`[Shopify OAuth] Generating Storefront Access Token...`);
+      const storefrontResponse = await axios.post(
+        `https://${shop}/admin/api/2024-01/storefront_access_tokens.json`,
+        {
+          storefront_access_token: {
+            title: "Curbsides Storefront client"
+          }
+        },
+        {
+          headers: {
+            "X-Shopify-Access-Token": accessToken,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      storefrontToken = storefrontResponse.data.storefront_access_token.access_token;
+      console.log(`[Shopify OAuth] Storefront Access Token created successfully.`);
+    } catch (sfErr) {
+      console.warn(`[Shopify OAuth] Storefront token creation failed (expected if it exists), listing existing tokens...`, sfErr.message);
+      try {
+        const listResponse = await axios.get(
+          `https://${shop}/admin/api/2024-01/storefront_access_tokens.json`,
+          {
+            headers: {
+              "X-Shopify-Access-Token": accessToken
+            }
+          }
+        );
+        const tokens = listResponse.data.storefront_access_tokens || [];
+        if (tokens.length > 0) {
+          storefrontToken = tokens[0].access_token;
+          console.log(`[Shopify OAuth] Retrieved existing Storefront Access Token.`);
+        }
+      } catch (listErr) {
+        console.error("[Shopify OAuth] Failed to list Storefront tokens:", listErr.message);
+      }
+    }
+
+    // Redirect to frontend root page with token parameters
+    res.redirect(`/?shopify_installed=true&shop=${encodeURIComponent(shop)}&admin_token=${encodeURIComponent(accessToken)}&storefront_token=${encodeURIComponent(storefrontToken)}`);
+
+  } catch (err) {
+    console.error("[Shopify OAuth] OAuth code exchange failed:", err.response?.data || err.message);
+    res.status(500).send("Authentication failed during token exchange.");
+  }
+});
+
+// 3. Shopify Product Creation API (Gated by admin_token)
+app.post("/api/shopify/create-product", async (req, res) => {
+  const { shop, admin_token, title, vendorName, borough, foodType, price } = req.body;
+
+  if (!shop || !admin_token || !title || !vendorName) {
+    return res.status(400).json({ error: "Missing required parameters: shop, admin_token, title, and vendorName are required." });
+  }
+
+  const sanitizedShop = shop.replace(/^https?:\/\//, "").trim();
+
+  try {
+    console.log(`[Shopify API] Creating starter product for vendor "${vendorName}" in "${sanitizedShop}"...`);
+    const productPayload = {
+      product: {
+        title: title,
+        body_html: `<strong>${foodType || "Specialty Street Food"}</strong> - freshly prepared by ${vendorName}.`,
+        vendor: vendorName,
+        status: "active",
+        tags: `Borough:${borough || "NYC"}, curbside-onboarded`,
+        variants: [
+          {
+            price: price || "12.00",
+            sku: `curbside-${vendorName.toLowerCase().replace(/[^a-z0-9]/g, "-")}-01`,
+            requires_shipping: true
+          }
+        ]
+      }
+    };
+
+    const response = await axios.post(
+      `https://${sanitizedShop}/admin/api/2024-01/products.json`,
+      productPayload,
+      {
+        headers: {
+          "X-Shopify-Access-Token": admin_token,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    console.log(`[Shopify API] Product created successfully. ID: ${response.data.product.id}`);
+    res.status(201).json({ success: true, product: response.data.product });
+  } catch (err) {
+    console.error("[Shopify API] Product creation failed:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to create product in Shopify", details: err.response?.data || err.message });
+  }
+});
+
 // Shopify Webhook Ingestion Endpoint
 app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res) => {
   try {
