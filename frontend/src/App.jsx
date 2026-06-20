@@ -41,7 +41,8 @@ import {
   Bike,
   Zap,
   UserPlus,
-  Clock
+  Clock,
+  Bell
 } from 'lucide-react';
 
 export default function App() {
@@ -56,6 +57,12 @@ export default function App() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [checkoutUrl, setCheckoutUrl] = useState('');
   const [isCheckoutLoading, setIsCheckoutLoading] = useState(false);
+  const [showSandboxCheckout, setShowSandboxCheckout] = useState(false);
+  const [checkoutName, setCheckoutName] = useState('');
+  const [checkoutEmail, setCheckoutEmail] = useState('');
+  const [checkoutPhone, setCheckoutPhone] = useState('');
+  const [checkoutAddress, setCheckoutAddress] = useState('Lower East Side, New York, NY 10038');
+  const [checkoutError, setCheckoutError] = useState('');
   
   // Shopify Configuration Modal State
   const [isConfigOpen, setIsConfigOpen] = useState(false);
@@ -93,6 +100,7 @@ export default function App() {
   
   // Customer Account Hub Tab State
   const [accountSubTab, setAccountSubTab] = useState('signin');
+  const [vendorSubTab, setVendorSubTab] = useState('signin');
 
   // Vendor Portal GPS Update State
   const [selectedPortalVendorId, setSelectedPortalVendorId] = useState('');
@@ -106,8 +114,9 @@ export default function App() {
   const [isStaffOpen, setIsStaffOpen] = useState(false);
   const [staffPasscode, setStaffPasscode] = useState('');
   const [staffError, setStaffError] = useState('');
-  const [adminSubTab, setAdminSubTab] = useState('drivers'); // 'drivers' | 'finance' | 'vendors' | 'applications'
+  const [adminSubTab, setAdminSubTab] = useState('drivers'); // 'drivers' | 'finance' | 'vendors' | 'applications' | 'support' | 'integrations'
   const [adminError, setAdminError] = useState('');
+  const [isAdminNotificationsOpen, setIsAdminNotificationsOpen] = useState(false);
 
   // Vendor User Authentication & Dashboard State
   const [vendorUser, setVendorUser] = useState(null);
@@ -115,6 +124,13 @@ export default function App() {
   const [vendorLoginPasscode, setVendorLoginPasscode] = useState('');
   const [vendorLoginError, setVendorLoginError] = useState('');
   const [vendorActiveSubTab, setVendorActiveSubTab] = useState('menu'); // 'menu' | 'gps' | 'profile'
+  const [driverUser, setDriverUser] = useState(null);
+  const [driverActiveSubTab, setDriverActiveSubTab] = useState('queue'); // 'queue' | 'active' | 'earnings'
+  const [userSession, setUserSession] = useState(null);
+  const [verificationPendingEmail, setVerificationPendingEmail] = useState('');
+  const [verificationCodeInput, setVerificationCodeInput] = useState('');
+  const [verificationError, setVerificationError] = useState('');
+  const [verificationSuccess, setVerificationSuccess] = useState('');
   const [newMenuName, setNewMenuName] = useState('');
   const [newMenuDesc, setNewMenuDesc] = useState('');
   const [newMenuPrice, setNewMenuPrice] = useState('');
@@ -174,6 +190,23 @@ export default function App() {
 
   // GPS address publishing state
   const [gpsAddressText, setGpsAddressText] = useState('');
+
+  // Customizable Onboarding Links
+  const [customVendorUrl, setCustomVendorUrl] = useState(() => {
+    return localStorage.getItem('curbsides_custom_vendor_url') || 'https://shop.curbsides.xyz/pages/join-fleet';
+  });
+  const [customDriverUrl, setCustomDriverUrl] = useState(() => {
+    return localStorage.getItem('curbsides_custom_driver_url') || 'https://shop.curbsides.xyz/pages/join-fleet';
+  });
+
+  // Admin Support Chat Input State
+  const [adminSupportInput, setAdminSupportInput] = useState('');
+
+  // Orders State
+  const [orders, setOrders] = useState([
+    { id: 'shopify-1001', customerAddress: '123 Williams St, New York, NY 10038 (Financial District)', vendorAddress: "Katz's Delicatessen, 205 E Houston St, New York, NY 10002", distance: 1.8, grossPayout: 3.60, netPayout: 3.24, status: 'pending', driverId: null, createdAt: new Date().toISOString() },
+    { id: 'shopify-1002', customerAddress: '45 Cooper Sq, New York, NY 10003 (East Village)', vendorAddress: "Katz's Delicatessen, 205 E Houston St, New York, NY 10002", distance: 0.8, grossPayout: 1.60, netPayout: 1.44, status: 'pending', driverId: null, createdAt: new Date().toISOString() }
+  ]);
 
   // Synchronize profile forms safely
   useEffect(() => {
@@ -262,6 +295,15 @@ export default function App() {
     setAdminTokenInput(localStorage.getItem('curbsides_shopify_admin_token') || '');
   }, [isConfigOpen]);
 
+  // Pre-populate Sandbox checkout if customer logged in
+  useEffect(() => {
+    if (customerUser) {
+      setCheckoutName(customerUser.name || '');
+      setCheckoutEmail(customerUser.email || '');
+      setCheckoutPhone(customerUser.phone || '');
+    }
+  }, [customerUser]);
+
   // URL routing and single page navigation listener
   useEffect(() => {
     const handlePopState = () => {
@@ -270,6 +312,7 @@ export default function App() {
       else if (path === '/driver-onboard') setActiveTab('driver-onboard');
       else if (path === '/admin') setActiveTab('admin');
       else if (path === '/vendor-portal') setActiveTab('vendor-portal');
+      else if (path === '/driver-portal') setActiveTab('driver-portal');
       else if (path === '/track') setActiveTab('track');
       else if (path === '/account') setActiveTab('account');
       else setActiveTab('directory');
@@ -286,6 +329,7 @@ export default function App() {
       activeTab === 'driver-onboard' ? '/driver-onboard' :
       activeTab === 'admin' ? '/admin' :
       activeTab === 'vendor-portal' ? '/vendor-portal' :
+      activeTab === 'driver-portal' ? '/driver-portal' :
       activeTab === 'track' ? '/track' :
       activeTab === 'account' ? '/account' : '/';
       
@@ -428,7 +472,23 @@ export default function App() {
         })
         .catch(err => console.log('Backend /api/vendor-applications not available, using mock applications.', err));
     }
-  }, [activeTab, isAdminAuthenticated, adminSubTab]);
+
+    if ((activeTab === 'admin' && isAdminAuthenticated) || (activeTab === 'vendor-portal' && vendorUser)) {
+      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+      // Fetch orders list
+      fetch(`${BACKEND_URL}/api/orders`)
+        .then(res => {
+          if (!res.ok) throw new Error();
+          return res.json();
+        })
+        .then(data => {
+          if (data && data.length > 0) {
+            setOrders(data);
+          }
+        })
+        .catch(err => console.log('Backend /api/orders not available, using mock orders.', err));
+    }
+  }, [activeTab, isAdminAuthenticated, adminSubTab, vendorUser]);
 
   // Leaflet Map Initialization
   useEffect(() => {
@@ -545,7 +605,135 @@ export default function App() {
     return cart.reduce((acc, i) => acc + (i.price * i.quantity), 0);
   };
 
-  // Shopify Checkout Creation
+  // SSO Click Handler
+  const handleSSOClick = (method, role = 'customer') => {
+    setCustomerAuthError('');
+    setVerificationError('');
+    if (method === 'Phone') {
+      const phone = prompt("Enter your Mobile Phone Number for SMS/Phone verification:");
+      if (!phone) return;
+      if (!phone.trim()) {
+        alert("A valid phone number is required.");
+        return;
+      }
+      alert(`SMS containing verification code sent to ${phone}! (Simulation bypass code: 123456)`);
+      setVerificationPendingEmail(`sms-${role}-${phone.trim()}`);
+    } else {
+      const email = prompt(`Enter your ${method} Email Address to authorize and verify account:`);
+      if (!email) return;
+      if (!email.trim() || !email.includes('@')) {
+        alert("A valid email address is required.");
+        return;
+      }
+      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+      fetch(`${BACKEND_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: email.split('@')[0].toUpperCase(),
+          email: email.trim(),
+          password: 'sso-password',
+          role: role
+        })
+      })
+      .then(res => {
+        if (res.ok || res.status === 409) {
+          if (res.status === 409) {
+            fetch(`${BACKEND_URL}/api/auth/login`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ email: email.trim(), password: 'sso-password' })
+            }).then(() => {
+              setVerificationPendingEmail(email.trim());
+            });
+          } else {
+            setVerificationPendingEmail(email.trim());
+          }
+        } else {
+          alert("SSO authentication error. Please try again.");
+        }
+      })
+      .catch(() => {
+        setVerificationPendingEmail(email.trim());
+      });
+    }
+  };
+
+  // Place Sandbox Checkout Order (In-App Simulation)
+  const handlePlaceSandboxOrder = async (e) => {
+    e.preventDefault();
+    setCheckoutError('');
+    if (!checkoutName.trim() || !checkoutEmail.trim() || !checkoutPhone.trim() || !checkoutAddress.trim()) {
+      setCheckoutError('All checkout fields are required.');
+      return;
+    }
+
+    if (cart.length === 0) return;
+
+    const matchedV = vendors.find(v => v.name === cart[0].vendorName);
+    const vendorAddress = matchedV ? matchedV.borough : "Katz's Delicatessen, 205 E Houston St, New York, NY 10002";
+
+    const orderPayload = {
+      customerName: checkoutName.trim(),
+      customerEmail: checkoutEmail.trim(),
+      customerPhoneNumber: checkoutPhone.trim(),
+      customerAddress: checkoutAddress.trim(),
+      vendorName: cart[0].vendorName,
+      vendorAddress: vendorAddress,
+      items: cart,
+      total: getCartTotal()
+    };
+
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    setIsCheckoutLoading(true);
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/orders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(orderPayload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setCart([]);
+        setShowSandboxCheckout(false);
+        alert(`Order successfully placed! Order ID: ${data.id}. Secured via Shipday Dispatch.`);
+        
+        localStorage.setItem('last_placed_order_id', data.id);
+        setSearchedOrder(data);
+        setTrackingOrderId(data.id);
+        setActiveTab('track');
+      } else {
+        setCheckoutError(data.error || "Failed to place order.");
+      }
+    } catch (err) {
+      console.error("Sandbox checkout placement failed:", err);
+      setCheckoutError("Failed to connect to backend server.");
+    } finally {
+      setIsCheckoutLoading(false);
+    }
+  };
+
+  // Auto-Track Order Listener
+  useEffect(() => {
+    if (activeTab === 'track') {
+      const lastPlacedId = localStorage.getItem('last_placed_order_id');
+      if (lastPlacedId && (!searchedOrder || searchedOrder.id !== lastPlacedId)) {
+        setTrackingOrderId(lastPlacedId);
+        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+        fetch(`${BACKEND_URL}/api/orders/shipday/${encodeURIComponent(lastPlacedId)}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data && !data.error) {
+              setSearchedOrder(data);
+            }
+          })
+          .catch(err => console.log("Auto-track lookup failed:", err));
+      }
+    }
+  }, [activeTab]);
+
+  // Shopify Checkout Creation (Fallback method)
   const handleCheckout = async () => {
     if (cart.length === 0) return;
     setIsCheckoutLoading(true);
@@ -596,30 +784,26 @@ export default function App() {
     setSearchedOrder(null);
 
     const orderIdToSearch = customId || trackingOrderId;
-    if (!orderIdToSearch.trim()) {
+    if (!orderIdToSearch || !orderIdToSearch.trim()) {
       setTrackingError('Please enter a valid order number.');
       return;
     }
 
-    const statuses = ['Processing Order', 'Vendor Preparing Food', 'Driver Assigned', 'On the Way', 'Delivered'];
-    const orderHash = orderIdToSearch.length % 5;
-    const currentStatus = statuses[orderHash];
-    const vendorMap = {
-      0: 'Korean BBQ Taco Truck',
-      1: 'Empanada Guy',
-      2: 'Ramen on Wheels',
-      3: 'Jerk Chicken Spot',
-      4: 'Korean BBQ Taco Truck'
-    };
-
-    setSearchedOrder({
-      id: orderIdToSearch.trim(),
-      status: currentStatus,
-      vendor: vendorMap[orderHash],
-      eta: 10 + orderHash * 5,
-      driverName: orderHash % 2 === 0 ? 'Carlos Rivera' : 'Sarah Chen',
-      driverPhone: '555-0144'
-    });
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    fetch(`${BACKEND_URL}/api/orders/shipday/${encodeURIComponent(orderIdToSearch.trim())}`)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error('Order not found. Please check your order ID and try again.');
+        }
+        return res.json();
+      })
+      .then(data => {
+        setSearchedOrder(data);
+      })
+      .catch(err => {
+        console.error("Error looking up order tracking:", err);
+        setTrackingError(err.message || 'Error connecting to operations system.');
+      });
   };
 
   // Handle Vendor Onboarding Form
@@ -853,59 +1037,89 @@ export default function App() {
   };
 
   // Authenticate Vendor User
-  const handleVendorLogin = (e) => {
+  const handleVendorLogin = async (e) => {
     e.preventDefault();
     setVendorLoginError('');
-    
-    if (vendorLoginPasscode !== 'vendor-123') {
-      setVendorLoginError('Invalid passcode. Try passcode: vendor-123.');
-      return;
-    }
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
 
-    const foundVendor = vendors.find(v => 
-      v.email?.toLowerCase() === vendorLoginEmail.toLowerCase() || 
-      (vendorLoginEmail.toLowerCase().includes('kings') && v.name.toLowerCase().includes('kings')) ||
-      (vendorLoginEmail.toLowerCase().includes('taco') && v.name.toLowerCase().includes('taco')) ||
-      (vendorLoginEmail.toLowerCase().includes('empanada') && v.name.toLowerCase().includes('empanada'))
-    );
-    
-    if (foundVendor) {
-      setVendorUser(foundVendor);
-      setSelectedPortalVendorId(foundVendor.id);
-    } else {
-      // Auto-register a new vendor so the user can sign in with whatever email they want
-      const emailPrefix = vendorLoginEmail.split('@')[0];
-      const formatName = emailPrefix
-        .split(/[._-]/)
-        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(' ') + " Truck";
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: vendorLoginEmail.trim(),
+          password: vendorLoginPasscode
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.user.role !== 'vendor') {
+          setVendorLoginError("Access denied. Please use the appropriate sign-in portal for your role.");
+          return;
+        }
+        
+        const matchedVendor = vendors.find(v => v.email?.toLowerCase() === vendorLoginEmail.toLowerCase() || v.name.toLowerCase().includes(data.user.name.toLowerCase()));
+        if (matchedVendor) {
+          setVendorUser(matchedVendor);
+          setSelectedPortalVendorId(matchedVendor.id);
+        } else {
+          const fallbackVendor = {
+            id: data.user.associatedId || 'vendor-sim',
+            name: data.user.name,
+            email: vendorLoginEmail,
+            borough: 'Manhattan, NYC',
+            isOpen: true,
+            rating: 5.0,
+            tags: ['Verified', 'Street Food'],
+            items: []
+          };
+          setVendorUser(fallbackVendor);
+          setSelectedPortalVendorId(fallbackVendor.id);
+        }
+      } else if (res.status === 403 && data.error === 'unverified') {
+        setVerificationPendingEmail(vendorLoginEmail.trim());
+      } else {
+        setVendorLoginError(data.error || "Login failed.");
+      }
+    } catch (err) {
+      if (vendorLoginPasscode !== 'vendor-123') {
+        setVendorLoginError('Invalid passcode. Try passcode: vendor-123.');
+        return;
+      }
+
+      const foundVendor = vendors.find(v => 
+        v.email?.toLowerCase() === vendorLoginEmail.toLowerCase() || 
+        (vendorLoginEmail.toLowerCase().includes('kings') && v.name.toLowerCase().includes('kings')) ||
+        (vendorLoginEmail.toLowerCase().includes('taco') && v.name.toLowerCase().includes('taco')) ||
+        (vendorLoginEmail.toLowerCase().includes('empanada') && v.name.toLowerCase().includes('empanada'))
+      );
       
-      const newVendorId = 'vendor-' + Date.now();
-      const newVendor = {
-        id: newVendorId,
-        name: formatName,
-        email: vendorLoginEmail,
-        borough: 'Manhattan, NYC',
-        isOpen: true,
-        rating: 5.0,
-        tags: ['New', 'Street Food'],
-        reviews: [
-          { id: 'rev-n-1', name: 'Curbsides Staff', rating: 5, comment: 'Welcome to your new food truck store! Customize your profile, manage menus, and watch customer reviews populate here.', date: new Date().toISOString().split('T')[0] }
-        ],
-        items: [
-          {
-            id: 'mock-new-1',
-            name: 'Signature Dish',
-            description: 'Our house special prepared fresh daily.',
-            price: 9.99,
-            image: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=60'
-          }
-        ]
-      };
-      
-      setVendors([...vendors, newVendor]);
-      setVendorUser(newVendor);
-      setSelectedPortalVendorId(newVendorId);
+      if (foundVendor) {
+        setVendorUser(foundVendor);
+        setSelectedPortalVendorId(foundVendor.id);
+      } else {
+        const emailPrefix = vendorLoginEmail.split('@')[0];
+        const formatName = emailPrefix
+          .split(/[._-]/)
+          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+          .join(' ') + " Truck";
+        
+        const newVendorId = 'vendor-' + Date.now();
+        const newVendor = {
+          id: newVendorId,
+          name: formatName,
+          email: vendorLoginEmail,
+          borough: 'Manhattan, NYC',
+          isOpen: true,
+          rating: 5.0,
+          tags: ['New', 'Street Food'],
+          reviews: [],
+          items: []
+        };
+        setVendors(prev => [...prev, newVendor]);
+        setVendorUser(newVendor);
+        setSelectedPortalVendorId(newVendorId);
+      }
     }
   };
 
@@ -918,44 +1132,185 @@ export default function App() {
     setActiveTab('directory');
   };
 
+  // Vendor Status Update Handler
+  const handleUpdateOrderStatus = async (orderId, newStatus) => {
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (response.ok) {
+        const updatedOrder = await response.json();
+        setOrders(prevOrders => prevOrders.map(o => o.id === orderId ? { ...o, ...updatedOrder } : o));
+        
+        // Live sync with tracking page if the active order matches
+        if (searchedOrder && searchedOrder.id === orderId) {
+          let vendorName = 'Vendor';
+          if (updatedOrder.vendorAddress) {
+            const commaIdx = updatedOrder.vendorAddress.indexOf(',');
+            vendorName = commaIdx > -1 ? updatedOrder.vendorAddress.substring(0, commaIdx) : updatedOrder.vendorAddress;
+          }
+          
+          let driverName = searchedOrder.driverName;
+          if (updatedOrder.driverId) {
+            const matchedDriver = drivers.find(d => d.id === updatedOrder.driverId);
+            driverName = matchedDriver ? matchedDriver.fullName : 'Sarah Chen';
+          }
+
+          setSearchedOrder({
+            id: updatedOrder.id,
+            status: updatedOrder.status,
+            vendor: vendorName,
+            eta: updatedOrder.status === 'Delivered' ? 0 : (updatedOrder.status === 'On the Way' ? 8 : (updatedOrder.status === 'Driver Assigned' ? 15 : 25)),
+            driverName: driverName,
+            driverPhone: '555-0144'
+          });
+        }
+      } else {
+        alert('Failed to update order status.');
+      }
+    } catch (err) {
+      console.error('Error updating order status:', err);
+      // Offline fallback
+      setOrders(prevOrders => prevOrders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+      if (searchedOrder && searchedOrder.id === orderId) {
+        setSearchedOrder(prev => prev ? { ...prev, status: newStatus } : null);
+      }
+    }
+  };
+
+  // Admin Assign Driver Handler
+  const handleAssignDriver = async (orderId, driverId) => {
+    if (!driverId) {
+      alert("Please select a driver to assign.");
+      return;
+    }
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    const matchedDriver = drivers.find(d => d.id === driverId);
+    const driverName = matchedDriver ? matchedDriver.fullName : 'Sarah Chen';
+
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/orders/${orderId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          driverId: driverId,
+          status: 'Driver Assigned'
+        })
+      });
+      if (response.ok) {
+        const updatedOrder = await response.json();
+        setOrders(prev => prev.map(o => o.id === orderId ? { ...o, ...updatedOrder } : o));
+        
+        // Sync with tracked order
+        if (searchedOrder && searchedOrder.id === orderId) {
+          let vendorName = 'Vendor';
+          if (updatedOrder.vendorAddress) {
+            const commaIdx = updatedOrder.vendorAddress.indexOf(',');
+            vendorName = commaIdx > -1 ? updatedOrder.vendorAddress.substring(0, commaIdx) : updatedOrder.vendorAddress;
+          }
+          setSearchedOrder({
+            id: updatedOrder.id,
+            status: updatedOrder.status,
+            vendor: vendorName,
+            eta: 15,
+            driverName: driverName,
+            driverPhone: '555-0144'
+          });
+        }
+        alert(`Driver ${driverName} successfully assigned to order ${orderId}!`);
+      } else {
+        alert("Failed to assign driver.");
+      }
+    } catch (err) {
+      console.error(err);
+      // Fallback
+      setOrders(prev => prev.map(o => o.id === orderId ? { ...o, driverId, status: 'Driver Assigned' } : o));
+      if (searchedOrder && searchedOrder.id === orderId) {
+        setSearchedOrder(prev => prev ? { ...prev, status: 'Driver Assigned', driverName } : null);
+      }
+    }
+  };
+
   // Customer Authentication & Wallet Handlers
-  const handleCustomerSignup = (e) => {
+  const handleCustomerSignup = async (e) => {
     e.preventDefault();
     setCustomerAuthError('');
     if (!customerRegisterName.trim() || !customerRegisterEmail.trim() || !customerRegisterPassword.trim()) {
       setCustomerAuthError('All registration fields are required.');
       return;
     }
-    const newUser = {
-      name: customerRegisterName.trim().toUpperCase(),
-      email: customerRegisterEmail.trim(),
-      phone: customerRegisterPhone.trim() || '555-0199',
-      joinedDate: new Date().toLocaleDateString()
-    };
-    setCustomerUser(newUser);
-    // Clear registration fields
-    setCustomerRegisterName('');
-    setCustomerRegisterEmail('');
-    setCustomerRegisterPhone('');
-    setCustomerRegisterPassword('');
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: customerRegisterName.trim(),
+          email: customerRegisterEmail.trim(),
+          password: customerRegisterPassword,
+          role: 'customer'
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setVerificationPendingEmail(customerRegisterEmail.trim());
+        setCustomerRegisterName('');
+        setCustomerRegisterEmail('');
+        setCustomerRegisterPhone('');
+        setCustomerRegisterPassword('');
+      } else {
+        setCustomerAuthError(data.error || "Signup failed.");
+      }
+    } catch (err) {
+      setCustomerAuthError("Network error. Verify operations backend is running.");
+    }
   };
 
-  const handleCustomerLogin = (e) => {
+  const handleCustomerLogin = async (e) => {
     e.preventDefault();
     setCustomerAuthError('');
     if (!customerLoginEmail.trim() || !customerLoginPassword.trim()) {
       setCustomerAuthError('Please enter both email and password.');
       return;
     }
-    const loggedInUser = {
-      name: customerLoginEmail.split('@')[0].toUpperCase(),
-      email: customerLoginEmail.trim(),
-      phone: '555-0199',
-      joinedDate: '06/15/2026'
-    };
-    setCustomerUser(loggedInUser);
-    setCustomerLoginEmail('');
-    setCustomerLoginPassword('');
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: customerLoginEmail.trim(),
+          password: customerLoginPassword
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        if (data.user.role !== 'customer') {
+          setCustomerAuthError("Access denied. Please use the appropriate sign-in portal for your role.");
+          return;
+        }
+        setCustomerUser(data.user);
+        setCustomerLoginEmail('');
+        setCustomerLoginPassword('');
+      } else if (res.status === 403 && data.error === 'unverified') {
+        setVerificationPendingEmail(customerLoginEmail.trim());
+      } else {
+        setCustomerAuthError(data.error || "Login failed.");
+      }
+    } catch (err) {
+      // Offline fallback
+      setCustomerUser({
+        name: customerLoginEmail.split('@')[0].toUpperCase(),
+        email: customerLoginEmail.trim(),
+        phone: '555-0199',
+        joinedDate: '06/15/2026'
+      });
+      setCustomerLoginEmail('');
+      setCustomerLoginPassword('');
+    }
   };
 
   const handleCustomerLogout = () => {
@@ -1235,6 +1590,164 @@ export default function App() {
   return (
     <div className="min-h-screen bg-black text-white flex flex-col antialiased selection:bg-white selection:text-black">
       
+      {/* Email Verification Code Entry Overlay */}
+      {verificationPendingEmail && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="max-w-md w-full border-2 border-white rounded-2xl p-6 md:p-8 bg-zinc-950 shadow-[0_0_50px_rgba(255,255,255,0.1)] space-y-6 animate-fade-in animate-scale-up">
+            <div className="text-center space-y-2">
+              <span className="bg-amber-500 text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded animate-pulse">
+                Verification Required
+              </span>
+              <h2 className="text-2xl font-bold uppercase text-white font-heading">Confirm Transit Pass</h2>
+              <p className="text-xs text-slate-400">
+                We sent a 6-digit access code to <strong className="text-white">{verificationPendingEmail}</strong> via Resend Mailer. Please enter it below:
+              </p>
+            </div>
+
+            {verificationError && (
+              <div className="p-3 border border-rose-500 bg-rose-950/20 text-rose-500 text-xs font-bold uppercase text-center rounded">
+                {verificationError}
+              </div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setVerificationError('');
+                const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+
+                try {
+                  if (verificationPendingEmail.startsWith('sms-')) {
+                    if (verificationCodeInput === '123456') {
+                      const parts = verificationPendingEmail.split('-');
+                      const verifiedRole = parts[1];
+                      const verifiedPhone = parts.slice(2).join('-');
+                      
+                      alert("Phone number successfully verified! You are now logged in.");
+                      setVerificationPendingEmail('');
+                      setVerificationCodeInput('');
+                      
+                      const simulatedUser = {
+                        id: 'sso-phone-' + Date.now(),
+                        name: 'PHONE USER',
+                        email: `phone-${verifiedPhone}@curbside.xyz`,
+                        phone: verifiedPhone,
+                        role: verifiedRole,
+                        isVerified: true
+                      };
+                      
+                      if (verifiedRole === 'driver') {
+                        setDriverUser(simulatedUser);
+                        setActiveTab('driver-portal');
+                      } else {
+                        setCustomerUser(simulatedUser);
+                        setActiveTab('account');
+                      }
+                    } else {
+                      setVerificationError("Invalid phone verification code. (Use 123456 for testing)");
+                    }
+                    return;
+                  }
+
+                  const res = await fetch(`${BACKEND_URL}/api/auth/verify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      email: verificationPendingEmail,
+                      code: verificationCodeInput
+                    })
+                  });
+                  const data = await res.json();
+                  if (res.ok) {
+                    alert("Email verified successfully! You are now logged in.");
+                    setVerificationPendingEmail('');
+                    setVerificationCodeInput('');
+                    
+                    if (data.user.role === 'vendor') {
+                      const loadVendors = async () => {
+                        const response = await fetchVendorsAndProducts();
+                        const matchedV = response.find(v => v.email?.toLowerCase() === verificationPendingEmail.toLowerCase() || v.name.toLowerCase().includes(data.user.name.toLowerCase()));
+                        if (matchedV) {
+                          setVendorUser(matchedV);
+                        } else {
+                          setVendorUser({
+                            id: data.user.associatedId || 'vendor-new',
+                            name: data.user.name,
+                            email: verificationPendingEmail,
+                            borough: 'Manhattan, NYC',
+                            isOpen: true,
+                            rating: 5.0,
+                            tags: ['Verified', 'Street Food'],
+                            items: []
+                          });
+                        }
+                      };
+                      loadVendors();
+                      setActiveTab('vendor-portal');
+                    } else if (data.user.role === 'driver') {
+                      setDriverUser(data.user);
+                      setActiveTab('driver-portal');
+                    } else {
+                      setCustomerUser(data.user);
+                      setActiveTab('account');
+                    }
+                  } else {
+                    setVerificationError(data.error || "Verification failed. Check code.");
+                  }
+                } catch (err) {
+                  if (verificationCodeInput === '123456') {
+                    alert("Simulated Verification Success!");
+                    setVerificationPendingEmail('');
+                    setVerificationCodeInput('');
+                    setDriverUser({
+                      id: 'driver-sim',
+                      email: verificationPendingEmail,
+                      name: 'Simulated Courier',
+                      role: 'driver'
+                    });
+                    setActiveTab('driver-portal');
+                  } else {
+                    setVerificationError("Network verification failed. (Use code 123456 for offline simulation bypass)");
+                  }
+                }
+              }}
+              className="space-y-4"
+            >
+              <div>
+                <input
+                  type="text"
+                  maxLength="6"
+                  required
+                  placeholder="e.g. 123456"
+                  value={verificationCodeInput}
+                  onChange={(e) => setVerificationCodeInput(e.target.value)}
+                  className="w-full text-center tracking-[12px] font-mono text-xl py-3 border-2 border-white rounded-xl bg-black text-white focus:border-white focus:outline-none"
+                />
+              </div>
+              
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  className="flex-1 py-3 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                >
+                  Verify Access
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setVerificationPendingEmail('');
+                    setVerificationCodeInput('');
+                  }}
+                  className="px-4 py-3 border-2 border-white/20 rounded-xl bg-black text-slate-400 hover:text-white hover:border-white transition-all cursor-pointer font-heading text-xs font-bold uppercase"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
       {/* Shopify Installation Banner */}
       {showShopifyBanner && (
         <div className="bg-emerald-500 text-black px-6 py-3 text-xs font-bold uppercase tracking-wider flex justify-between items-center border-b-2 border-white animate-fade-in z-50">
@@ -1269,41 +1782,107 @@ export default function App() {
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap sm:gap-3">
-          {/* Public customer buttons */}
-          <button
-            onClick={() => setActiveTab(activeTab === 'account' ? 'directory' : 'account')}
-            className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-              activeTab === 'account' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-            }`}
-          >
-            My Account
-          </button>
-
-          <button
-            onClick={() => setActiveTab(activeTab === 'track' ? 'directory' : 'track')}
-            className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-              activeTab === 'track' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-            }`}
-          >
-            Track Order
-          </button>
-          
-          <button
-            onClick={() => setIsCartOpen(true)}
-            className="relative px-3.5 py-1.5 border-2 border-white rounded-lg bg-white text-black font-bold text-xs uppercase flex items-center gap-1.5 hover:bg-black hover:text-white transition-all cursor-pointer"
-          >
-            <ShoppingBag className="w-4 h-4" />
-            Cart
-            {cart.length > 0 && (
-              <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-black text-white border-2 border-white flex items-center justify-center text-[10px] font-bold">
-                {cart.reduce((a, c) => a + c.quantity, 0)}
+          {/* 1. VENDOR SESSION HEADER VIEW */}
+          {vendorUser && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded font-bold uppercase font-heading">
+                Vendor: {vendorUser.name}
               </span>
-            )}
-          </button>
+              <button
+                onClick={() => setActiveTab('vendor-portal')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'vendor-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Vendor Portal
+              </button>
+              <button
+                onClick={handleVendorLogout}
+                className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"
+              >
+                Logout
+              </button>
+            </div>
+          )}
 
-          {/* Gated staff buttons, only shown if staff passcode is unlocked */}
-          {isStaffAuthenticated && (
-            <div className="flex items-center gap-2 border-l border-white/20 pl-2 ml-1 flex-wrap gap-2">
+          {/* 2. DRIVER SESSION HEADER VIEW */}
+          {driverUser && !vendorUser && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] bg-rose-500/10 text-rose-400 border border-rose-500/30 px-2.5 py-1 rounded font-bold uppercase font-heading">
+                Courier: {driverUser.fullName || driverUser.name}
+              </span>
+              <button
+                onClick={() => setActiveTab('driver-portal')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'driver-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Driver Portal
+              </button>
+              <button
+                onClick={() => {
+                  setDriverUser(null);
+                  setActiveTab('directory');
+                }}
+                className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"
+              >
+                Logout
+              </button>
+            </div>
+          )}
+
+          {/* 3. CUSTOMER SESSION HEADER VIEW */}
+          {customerUser && !vendorUser && !driverUser && (
+            <div className="flex items-center gap-2 sm:gap-3">
+              <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded font-bold uppercase font-heading">
+                User: {customerUser.name}
+              </span>
+              <button
+                onClick={() => setActiveTab(activeTab === 'account' ? 'directory' : 'account')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'account' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                My Account
+              </button>
+              <button
+                onClick={() => setActiveTab(activeTab === 'track' ? 'directory' : 'track')}
+                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'track' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Track Order
+              </button>
+              <button
+                onClick={() => setIsCartOpen(true)}
+                className="relative px-3.5 py-1.5 border-2 border-white rounded-lg bg-white text-black font-bold text-xs uppercase flex items-center gap-1.5 hover:bg-black hover:text-white transition-all cursor-pointer"
+              >
+                <ShoppingBag className="w-4 h-4" />
+                Cart
+                {cart.length > 0 && (
+                  <span className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-black text-white border-2 border-white flex items-center justify-center text-[10px] font-bold">
+                    {cart.reduce((a, c) => a + c.quantity, 0)}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => {
+                  setCustomerUser(null);
+                  setActiveTab('directory');
+                }}
+                className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"
+              >
+                Logout
+              </button>
+            </div>
+          )}
+
+          {/* 4. ADMIN SESSION HEADER VIEW */}
+          {isStaffAuthenticated && !vendorUser && !driverUser && !customerUser && (
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] bg-white/10 text-white border border-white/20 px-2.5 py-1 rounded font-bold uppercase font-heading">
+                Admin Console
+              </span>
               <button
                 onClick={() => setActiveTab(activeTab === 'admin' ? 'directory' : 'admin')}
                 className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
@@ -1312,25 +1891,6 @@ export default function App() {
               >
                 Admin Panel
               </button>
-
-              <button
-                onClick={() => setActiveTab(activeTab === 'vendor-portal' ? 'directory' : 'vendor-portal')}
-                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-                  activeTab === 'vendor-portal' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                }`}
-              >
-                Vendor Portal
-              </button>
-
-              <button
-                onClick={() => setActiveTab(activeTab === 'vendor-onboard' ? 'directory' : 'vendor-onboard')}
-                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-                  activeTab === 'vendor-onboard' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                }`}
-              >
-                Vendor Join
-              </button>
-
               <button 
                 onClick={() => setIsConfigOpen(true)}
                 className="p-2 border-2 border-white rounded-lg hover:bg-white hover:text-black transition-all cursor-pointer text-white"
@@ -1338,13 +1898,68 @@ export default function App() {
               >
                 <Settings className="w-4 h-4" />
               </button>
-
               <button
                 onClick={handleStaffLogout}
                 className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"
-                title="Lock Console / Log out staff"
               >
                 Lock
+              </button>
+            </div>
+          )}
+
+          {/* 5. GUEST / LOGGED-OUT HEADER VIEW */}
+          {!vendorUser && !driverUser && !customerUser && !isStaffAuthenticated && (
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+              <button
+                onClick={() => setActiveTab('account')}
+                className={`px-2 py-1.5 border border-white rounded text-[10px] font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'account' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Customer Sign In
+              </button>
+              <button
+                onClick={() => setActiveTab('track')}
+                className={`px-2 py-1.5 border border-white rounded text-[10px] font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'track' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Track Order
+              </button>
+              <button
+                onClick={() => setActiveTab('vendor-portal')}
+                className={`px-2 py-1.5 border border-amber-500 rounded text-[10px] font-bold uppercase bg-black text-amber-500 hover:bg-amber-500 hover:text-black transition-all cursor-pointer font-heading ${
+                  activeTab === 'vendor-portal' ? 'bg-amber-500 text-black border-amber-500' : ''
+                }`}
+              >
+                Vendor Portal
+              </button>
+              <button
+                onClick={() => setActiveTab('driver-portal')}
+                className={`px-2 py-1.5 border border-rose-500 rounded text-[10px] font-bold uppercase bg-black text-rose-500 hover:bg-rose-500 hover:text-black transition-all cursor-pointer font-heading ${
+                  activeTab === 'driver-portal' ? 'bg-rose-500 text-black border-rose-500' : ''
+                }`}
+              >
+                Driver Portal
+              </button>
+              <button
+                onClick={() => setActiveTab('admin')}
+                className={`px-2 py-1.5 border border-white rounded text-[10px] font-bold uppercase transition-all cursor-pointer font-heading ${
+                  activeTab === 'admin' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                }`}
+              >
+                Admin Command
+              </button>
+              <button
+                onClick={() => setIsCartOpen(true)}
+                className="relative p-2 border border-white rounded bg-white text-black flex items-center justify-center hover:bg-black hover:text-white transition-all cursor-pointer"
+              >
+                <ShoppingBag className="w-3.5 h-3.5" />
+                {cart.length > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-black text-white border border-white flex items-center justify-center text-[9px] font-bold">
+                    {cart.reduce((a, c) => a + c.quantity, 0)}
+                  </span>
+                )}
               </button>
             </div>
           )}
@@ -1391,7 +2006,7 @@ export default function App() {
             </div>
 
             {searchedOrder && (
-              <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-6 animate-fade-in">
+              <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-5 animate-fade-in text-white font-sans">
                 <div className="flex justify-between items-center border-b border-white/20 pb-4">
                   <div>
                     <span className="text-[10px] text-slate-400 block font-bold uppercase">Order ID</span>
@@ -1413,8 +2028,9 @@ export default function App() {
                       className="h-full bg-white transition-all duration-500" 
                       style={{ 
                         width: searchedOrder.status === 'Delivered' ? '100%' : 
-                               searchedOrder.status === 'On the Way' ? '75%' : 
-                               searchedOrder.status === 'Driver Assigned' ? '50%' : '25%' 
+                               searchedOrder.status === 'On the Way' ? '80%' : 
+                               searchedOrder.status === 'Driver Assigned' ? '60%' : 
+                               searchedOrder.status === 'Vendor Preparing Food' ? '40%' : '20%' 
                       }}
                     ></span>
                   </div>
@@ -1427,9 +2043,60 @@ export default function App() {
                   </div>
                   <div className="border border-white/10 p-3 rounded-xl bg-zinc-950/40">
                     <span className="text-slate-400 block mb-1">Courier</span>
-                    <span className="text-white font-bold">{searchedOrder.driverName}</span>
+                    <span className="text-white font-bold truncate block">{searchedOrder.driverName}</span>
                   </div>
                 </div>
+
+                {/* Pickup and Delivery Address Card */}
+                {(searchedOrder.vendorAddress || searchedOrder.customerAddress) && (
+                  <div className="border border-white/15 p-4 rounded-xl bg-zinc-950/20 text-xs space-y-3">
+                    {searchedOrder.vendorAddress && (
+                      <div className="flex gap-2">
+                        <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="text-slate-500 font-bold uppercase text-[9px] block">Pickup Location</span>
+                          <span className="text-white font-semibold">{searchedOrder.vendorAddress}</span>
+                        </div>
+                      </div>
+                    )}
+                    {searchedOrder.vendorAddress && searchedOrder.customerAddress && (
+                      <div className="border-t border-white/10 my-2"></div>
+                    )}
+                    {searchedOrder.customerAddress && (
+                      <div className="flex gap-2">
+                        <Navigation className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="text-slate-500 font-bold uppercase text-[9px] block">Destination</span>
+                          <span className="text-white font-semibold">{searchedOrder.customerAddress}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Shipday Live GPS Map Tracker */}
+                {searchedOrder.trackingLink && (
+                  <a 
+                    href={searchedOrder.trackingLink} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="flex items-center justify-center gap-2 w-full py-3 bg-white text-black font-extrabold text-xs uppercase rounded-xl border border-white hover:bg-black hover:text-white transition-all text-center tracking-wider font-heading cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Open Live GPS Tracking Map
+                  </a>
+                )}
+
+                {/* Call Courier Option */}
+                {searchedOrder.driverPhone && (
+                  <a 
+                    href={`tel:${searchedOrder.driverPhone}`} 
+                    className="flex items-center justify-center gap-2 w-full py-2.5 bg-transparent text-white font-extrabold text-xs uppercase rounded-xl border border-white/20 hover:border-white transition-all text-center tracking-wider font-heading cursor-pointer"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    Contact Courier ({searchedOrder.driverPhone})
+                  </a>
+                )}
 
                 <div className="flex items-center justify-center gap-1.5 text-[9px] bg-white/5 border border-white/10 px-2 py-1.5 rounded-xl text-slate-400 uppercase tracking-widest font-heading">
                   <Activity className="w-3.5 h-3.5 text-white animate-pulse" />
@@ -1514,6 +2181,50 @@ export default function App() {
                         Login to Wallet
                       </button>
                     </form>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-center gap-2 my-4">
+                        <span className="h-[1px] bg-white/10 flex-1"></span>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or sign in with</span>
+                        <span className="h-[1px] bg-white/10 flex-1"></span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Google')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
+                          Google
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Apple')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
+                          Apple
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Outlook')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          Outlook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Phone')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          SMS/Phone
+                        </button>
+                      </div>
+                    </div>
                     
                     <div className="pt-2 text-center border-t border-white/10">
                       <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">Quick Demo Login</p>
@@ -1600,6 +2311,50 @@ export default function App() {
                         Create Account
                       </button>
                     </form>
+
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-center gap-2 my-4">
+                        <span className="h-[1px] bg-white/10 flex-1"></span>
+                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or register with</span>
+                        <span className="h-[1px] bg-white/10 flex-1"></span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Google')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
+                          Google
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Apple')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
+                          Apple
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Outlook')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                          Outlook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Phone')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          SMS/Phone
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
 
@@ -2429,66 +3184,265 @@ export default function App() {
           <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
             {!vendorUser ? (
               <div className="max-w-md mx-auto w-full border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
-                <div className="text-center">
-                  <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
-                    Vendor Workspace
-                  </span>
-                  <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Vendor Sign In</h2>
-                  <p className="text-xs text-slate-400 mt-1">Authenticate as registered food truck staff to manage your live GPS and menu items.</p>
-                </div>
-
-                {vendorLoginError && (
-                  <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
-                    {vendorLoginError}
-                  </div>
-                )}
-
-                <form onSubmit={handleVendorLogin} className="space-y-4">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="e.g. tacos@kbbq.com"
-                      value={vendorLoginEmail}
-                      onChange={(e) => setVendorLoginEmail(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl omny-input text-sm text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Staff Passcode</label>
-                    <input
-                      type="password"
-                      required
-                      placeholder="Passcode (e.g. vendor-123)"
-                      value={vendorLoginPasscode}
-                      onChange={(e) => setVendorLoginPasscode(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl omny-input text-sm text-white"
-                    />
-                  </div>
-
+                {/* Tab Navigation */}
+                <div className="flex border-b border-white/10">
                   <button
-                    type="submit"
-                    className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    onClick={() => {
+                      setVendorSubTab('signin');
+                      setVendorLoginError('');
+                    }}
+                    className={`flex-1 pb-3 text-xs uppercase tracking-widest font-heading font-extrabold border-b-2 transition-all cursor-pointer ${
+                      vendorSubTab === 'signin' ? 'border-white text-white' : 'border-transparent text-slate-500 hover:text-white'
+                    }`}
                   >
-                    Enter Dashboard
+                    Sign In
                   </button>
-                </form>
-
-                <div className="border-t border-white/10 pt-4 text-center">
-                  <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
-                    Approved Simulation Accounts
-                  </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5 justify-center">
-                    <span onClick={() => { setVendorLoginEmail('tacos@kbbq.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">tacos@kbbq.com</span>
-                    <span onClick={() => { setVendorLoginEmail('empanadas@guy.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">empanadas@guy.com</span>
-                    <span onClick={() => { setVendorLoginEmail('kings@halalcart.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">kings@halalcart.com</span>
-                  </div>
-                  <p className="mt-3 text-[9px] text-zinc-500 leading-normal">
-                    * Logging in with a new email automatically registers a fresh vendor profile so you can manage a new store immediately (Passcode: vendor-123).
-                  </p>
+                  <button
+                    onClick={() => {
+                      setVendorSubTab('register');
+                      setVendorLoginError('');
+                    }}
+                    className={`flex-1 pb-3 text-xs uppercase tracking-widest font-heading font-extrabold border-b-2 transition-all cursor-pointer ${
+                      vendorSubTab === 'register' ? 'border-white text-white' : 'border-transparent text-slate-500 hover:text-white'
+                    }`}
+                  >
+                    Register Vendor
+                  </button>
                 </div>
+
+                {vendorSubTab === 'signin' ? (
+                  <>
+                  <div className="text-center">
+                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                      Vendor Workspace
+                    </span>
+                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Vendor Sign In</h2>
+                    <p className="text-xs text-slate-400 mt-1">Authenticate as registered food truck staff to manage your live GPS and menu items.</p>
+                  </div>
+
+                  {vendorLoginError && (
+                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
+                      {vendorLoginError}
+                    </div>
+                  )}
+
+                  <form onSubmit={handleVendorLogin} className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                      <input
+                        type="email"
+                        required
+                        placeholder="e.g. tacos@kbbq.com"
+                        value={vendorLoginEmail}
+                        onChange={(e) => setVendorLoginEmail(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Staff Passcode</label>
+                      <input
+                        type="password"
+                        required
+                        placeholder="Passcode (e.g. vendor-123)"
+                        value={vendorLoginPasscode}
+                        onChange={(e) => setVendorLoginPasscode(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Enter Dashboard
+                    </button>
+                  </form>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-2 my-4">
+                      <span className="h-[1px] bg-white/10 flex-1"></span>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or sign in with</span>
+                      <span className="h-[1px] bg-white/10 flex-1"></span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Google', 'vendor')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
+                        Google
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Apple', 'vendor')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
+                        Apple
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Outlook', 'vendor')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        Outlook
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Phone', 'vendor')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        SMS/Phone
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-white/10 pt-4 text-center">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                      Approved Simulation Accounts
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-1.5 justify-center">
+                      <span onClick={() => { setVendorLoginEmail('tacos@kbbq.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">tacos@kbbq.com</span>
+                      <span onClick={() => { setVendorLoginEmail('empanadas@guy.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">empanadas@guy.com</span>
+                      <span onClick={() => { setVendorLoginEmail('kings@halalcart.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">kings@halalcart.com</span>
+                    </div>
+                  </div>
+                  </>
+                ) : (
+                  <>
+                  <div className="text-center">
+                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                      Vendor Onboarding
+                    </span>
+                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Register Truck</h2>
+                    <p className="text-xs text-slate-400 mt-1">Create a staff profile and verify email to list your food truck on Curbsides.</p>
+                  </div>
+
+                  {vendorLoginError && (
+                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
+                      {vendorLoginError}
+                    </div>
+                  )}
+
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      setVendorLoginError('');
+                      const name = e.target.truckName.value.trim();
+                      const email = e.target.email.value.trim();
+                      const password = e.target.passcode.value;
+                      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+
+                      try {
+                        const res = await fetch(`${BACKEND_URL}/api/auth/register`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name, email, password, role: 'vendor' })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setVerificationPendingEmail(email);
+                        } else {
+                          setVendorLoginError(data.error || "Registration failed.");
+                        }
+                      } catch (err) {
+                        setVendorLoginError("Network error. Verify server is running.");
+                      }
+                    }}
+                    className="space-y-4"
+                  >
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Food Truck Name</label>
+                      <input
+                        name="truckName"
+                        type="text"
+                        required
+                        placeholder="e.g. Birria Landia"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Staff Email Address</label>
+                      <input
+                        name="email"
+                        type="email"
+                        required
+                        placeholder="e.g. staff@birria.com"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Staff Passcode</label>
+                      <input
+                        name="passcode"
+                        type="password"
+                        required
+                        placeholder="Passcode (e.g. vendor-123)"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Verify Email &amp; List Truck
+                    </button>
+                  </form>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-2 my-4">
+                      <span className="h-[1px] bg-white/10 flex-1"></span>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or register with</span>
+                      <span className="h-[1px] bg-white/10 flex-1"></span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Google', 'vendor')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
+                        Google
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Apple', 'vendor')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
+                        Apple
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Outlook', 'vendor')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        Outlook
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Phone', 'vendor')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        SMS/Phone
+                      </button>
+                    </div>
+                  </div>
+                  </>
+                )}
               </div>
             ) : (
               <div className="border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
@@ -2516,6 +3470,33 @@ export default function App() {
                       }`}
                     >
                       Menu Manager
+                    </button>
+                    <button
+                      onClick={() => setVendorActiveSubTab('orders')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 ${
+                        vendorActiveSubTab === 'orders' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Orders
+                      {(() => {
+                        const cleanUser = vendorUser.name.toLowerCase()
+                          .replace('truck', '')
+                          .replace('spot', '')
+                          .replace('guy', '')
+                          .replace('wheels', '')
+                          .trim();
+                        const vendorActiveOrders = orders.filter(o => {
+                          const addr = (o.vendorAddress || '').toLowerCase();
+                          return addr.includes(cleanUser) && (o.status === 'pending' || o.status === 'Processing Order' || o.status === 'Vendor Preparing Food');
+                        });
+                        return vendorActiveOrders.length > 0 ? (
+                          <span className={`w-4 h-4 rounded-full text-[9px] font-black flex items-center justify-center ${
+                            vendorActiveSubTab === 'orders' ? 'bg-black text-white' : 'bg-white text-black'
+                          }`}>
+                            {vendorActiveOrders.length}
+                          </span>
+                        ) : null;
+                      })()}
                     </button>
                     <button
                       onClick={() => setVendorActiveSubTab('gps')}
@@ -2791,6 +3772,107 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Subtab: Orders Dashboard */}
+                {vendorActiveSubTab === 'orders' && (
+                  <div className="space-y-6 animate-fade-in">
+                    <div className="flex justify-between items-center border-b border-white/20 pb-4">
+                      <div>
+                        <h3 className="text-xl font-bold uppercase text-white font-heading">Orders Dashboard</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">Track, receive, and dispatch orders assigned to your venue.</p>
+                      </div>
+                    </div>
+
+                    <div className="border border-white/20 rounded-xl overflow-hidden bg-black/40 backdrop-blur-md">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-white/25 bg-white/5 uppercase text-slate-400 font-bold font-heading">
+                              <th className="p-3.5">Order ID</th>
+                              <th className="p-3.5">Delivery Destination</th>
+                              <th className="p-3.5">Fares &amp; Payout</th>
+                              <th className="p-3.5">Status</th>
+                              <th className="p-3.5 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(() => {
+                              const cleanUser = vendorUser.name.toLowerCase()
+                                .replace('truck', '')
+                                .replace('spot', '')
+                                .replace('guy', '')
+                                .replace('wheels', '')
+                                .trim();
+                              
+                              const vendorOrdersList = orders.filter(o => {
+                                const addr = (o.vendorAddress || '').toLowerCase();
+                                return addr.includes(cleanUser);
+                              });
+
+                              if (vendorOrdersList.length === 0) {
+                                return (
+                                  <tr>
+                                    <td colSpan="5" className="p-8 text-center text-slate-500 font-mono">
+                                      No orders found in dispatch queue.
+                                    </td>
+                                  </tr>
+                                );
+                              }
+
+                              return vendorOrdersList.map(order => {
+                                return (
+                                  <tr key={order.id} className="border-b border-white/10 hover:bg-white/5 transition-all">
+                                    <td className="p-3.5 font-mono font-bold text-white">{order.id}</td>
+                                    <td className="p-3.5 text-slate-300 max-w-xs truncate" title={order.customerAddress}>
+                                      {order.customerAddress}
+                                    </td>
+                                    <td className="p-3.5 text-slate-300">
+                                      <div>Dist: {order.distance} mi</div>
+                                      <div className="text-[10px] text-slate-500 mt-0.5">Gross: ${Number(order.grossPayout || 0).toFixed(2)}</div>
+                                    </td>
+                                    <td className="p-3.5">
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                                        order.status === 'pending' || order.status === 'Processing Order' ? 'bg-amber-950/40 text-amber-400 border-amber-800/40' :
+                                        order.status === 'Vendor Preparing Food' ? 'bg-orange-950/40 text-orange-400 border-orange-800/40' :
+                                        order.status === 'Driver Assigned' ? 'bg-blue-950/40 text-blue-400 border-blue-800/40' :
+                                        order.status === 'On the Way' ? 'bg-indigo-950/40 text-indigo-400 border-indigo-800/40' :
+                                        order.status === 'Delivered' ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/40' :
+                                        'bg-zinc-950/40 text-slate-400 border-slate-800/40'
+                                      }`}>
+                                        {order.status}
+                                      </span>
+                                    </td>
+                                    <td className="p-3.5 text-right space-x-2">
+                                      {(order.status === 'pending' || order.status === 'Processing Order') && (
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'Vendor Preparing Food')}
+                                          className="px-2.5 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                        >
+                                          Confirm &amp; Prepare
+                                        </button>
+                                      )}
+                                      {order.status === 'Vendor Preparing Food' && (
+                                        <button
+                                          onClick={() => handleUpdateOrderStatus(order.id, 'Driver Assigned')}
+                                          className="px-2.5 py-1 border border-emerald-500 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer font-heading"
+                                        >
+                                          Mark Ready
+                                        </button>
+                                      )}
+                                      {order.status !== 'pending' && order.status !== 'Processing Order' && order.status !== 'Vendor Preparing Food' && (
+                                        <span className="text-[10px] text-slate-500 uppercase font-mono">Dispatched</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              });
+                            })()}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Subtab: Live GPS location */}
                 {vendorActiveSubTab === 'gps' && (
                   <div className="space-y-6">
@@ -3028,6 +4110,634 @@ export default function App() {
           </div>
         )}
 
+        {/* Driver Portal Tab: Companion App Workspace */}
+        {activeTab === 'driver-portal' && (
+          <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
+            {!driverUser ? (
+              <div className="max-w-md mx-auto w-full border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
+                <div className="text-center">
+                  <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded animate-pulse">
+                    Courier Companion
+                  </span>
+                  <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Driver Portal</h2>
+                  <p className="text-xs text-slate-400 mt-1">Authenticate as a curbside courier to claim fares and sync delivery geolocations.</p>
+                </div>
+
+                <div className="flex border-b border-white/15">
+                  <button
+                    onClick={() => setAccountSubTab('signin')}
+                    className={`flex-1 pb-3 text-sm font-extrabold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                      accountSubTab === 'signin' ? 'border-white text-white' : 'border-transparent text-slate-500 hover:text-white'
+                    }`}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    onClick={() => setAccountSubTab('register')}
+                    className={`flex-1 pb-3 text-sm font-extrabold uppercase tracking-wider border-b-2 transition-all cursor-pointer ${
+                      accountSubTab === 'register' ? 'border-white text-white' : 'border-transparent text-slate-500 hover:text-white'
+                    }`}
+                  >
+                    Apply / Join
+                  </button>
+                </div>
+
+                {accountSubTab === 'signin' ? (
+                  <>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      setVerificationError('');
+                      const email = e.target.email.value.trim();
+                      const password = e.target.password.value;
+                      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+
+                      try {
+                        const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ email, password })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          if (data.user.role !== 'driver') {
+                            setVerificationError("Access denied. This login is not registered as a Driver.");
+                            return;
+                          }
+                          setDriverUser(data.user);
+                          setDriverActiveSubTab('queue');
+                        } else if (res.status === 403 && data.error === 'unverified') {
+                          setVerificationPendingEmail(email);
+                        } else {
+                          setVerificationError(data.error || "Login failed.");
+                        }
+                      } catch (err) {
+                        // Offline simulation fallback for demo
+                        const mockDriver = drivers.find(d => d.email?.toLowerCase() === email.toLowerCase());
+                        if (mockDriver) {
+                          setDriverUser({
+                            id: mockDriver.id,
+                            email: mockDriver.email,
+                            name: mockDriver.fullName,
+                            role: 'driver'
+                          });
+                          setDriverActiveSubTab('queue');
+                        } else {
+                          setVerificationError("Login failed. Check connection or credentials.");
+                        }
+                      }
+                    }}
+                    className="space-y-4"
+                  >
+                    {verificationError && (
+                      <div className="p-3 border border-rose-500 bg-rose-950/20 text-rose-500 text-xs font-bold uppercase rounded text-center">
+                        {verificationError}
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                      <input
+                        name="email"
+                        type="email"
+                        required
+                        placeholder="courier@example.com"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
+                      <input
+                        name="password"
+                        type="password"
+                        required
+                        placeholder="••••••••"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Login to Console
+                    </button>
+                  </form>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-2 my-4">
+                      <span className="h-[1px] bg-white/10 flex-1"></span>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or sign in with</span>
+                      <span className="h-[1px] bg-white/10 flex-1"></span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Google', 'driver')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
+                        Google
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Apple', 'driver')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
+                        Apple
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Outlook', 'driver')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        Outlook
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Phone', 'driver')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        SMS/Phone
+                      </button>
+                    </div>
+                  </div>
+                  </>
+                ) : (
+                  <>
+                  <form
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      setVerificationError('');
+                      const name = e.target.fullName.value.trim();
+                      const email = e.target.email.value.trim();
+                      const password = e.target.password.value;
+                      const vehicle = e.target.vehicle.value;
+                      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+
+                      try {
+                        const res = await fetch(`${BACKEND_URL}/api/auth/register`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ name, email, password, role: 'driver', vehicle })
+                        });
+                        const data = await res.json();
+                        if (res.ok) {
+                          setVerificationPendingEmail(email);
+                        } else {
+                          setVerificationError(data.error || "Registration failed.");
+                        }
+                      } catch (err) {
+                        setVerificationError("Network error. Verify backend server is running.");
+                      }
+                    }}
+                    className="space-y-4"
+                  >
+                    {verificationError && (
+                      <div className="p-3 border border-rose-500 bg-rose-950/20 text-rose-500 text-xs font-bold uppercase rounded text-center">
+                        {verificationError}
+                      </div>
+                    )}
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
+                      <input
+                        name="fullName"
+                        type="text"
+                        required
+                        placeholder="Carlos Rivera"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                      <input
+                        name="email"
+                        type="email"
+                        required
+                        placeholder="carlos@example.com"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
+                      <input
+                        name="password"
+                        type="password"
+                        required
+                        placeholder="Create Password"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Vehicle Type</label>
+                      <select
+                        name="vehicle"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                      >
+                        <option value="bike">Bicycle</option>
+                        <option value="scooter">E-Scooter / Moped</option>
+                        <option value="car">Car / EV</option>
+                      </select>
+                    </div>
+                    <button
+                      type="submit"
+                      className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Verify Email &amp; Join
+                    </button>
+                  </form>
+
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-center gap-2 my-4">
+                      <span className="h-[1px] bg-white/10 flex-1"></span>
+                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or register with</span>
+                      <span className="h-[1px] bg-white/10 flex-1"></span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Google', 'driver')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
+                        Google
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Apple', 'driver')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
+                        Apple
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Outlook', 'driver')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <Mail className="w-3.5 h-3.5" />
+                        Outlook
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSSOClick('Phone', 'driver')}
+                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                        SMS/Phone
+                      </button>
+                    </div>
+                  </div>
+                  </>
+                )}
+
+                <div className="border-t border-white/10 pt-4 text-center">
+                  <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
+                    Active Driver Testing Accounts
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-1.5 justify-center">
+                    <span onClick={() => { 
+                      const mockD = drivers[0];
+                      if (mockD) {
+                        setDriverUser({ id: mockD.id, email: mockD.email || 'carlos@example.com', name: mockD.fullName, role: 'driver' });
+                        setDriverActiveSubTab('queue');
+                      }
+                    }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">
+                      Carlos Rivera (Simulation)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
+                {/* Header */}
+                <div className="flex justify-between items-start border-b border-white/20 pb-4 flex-wrap gap-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span className="text-[9px] font-mono bg-white/10 px-2 py-0.5 rounded border border-white/10 text-slate-300 uppercase font-bold tracking-wider">
+                        Active Dispatcher
+                      </span>
+                    </div>
+                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-1">{driverUser.fullName || driverUser.name}</h2>
+                    <p className="text-xs text-slate-400 mt-0.5">Courier Session &bull; Mode: Delivery Partner</p>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setDriverActiveSubTab('queue')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        driverActiveSubTab === 'queue' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Fares Queue
+                    </button>
+                    <button
+                      onClick={() => setDriverActiveSubTab('active')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        driverActiveSubTab === 'active' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Active Route
+                    </button>
+                    <button
+                      onClick={() => setDriverActiveSubTab('earnings')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        driverActiveSubTab === 'earnings' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      My Earnings
+                    </button>
+                    <button
+                      onClick={() => {
+                        setDriverUser(null);
+                        setActiveTab('directory');
+                      }}
+                      className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                    >
+                      Logout
+                    </button>
+                  </div>
+                </div>
+
+                {/* Subtab: Fares Queue */}
+                {driverActiveSubTab === 'queue' && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Available Dispatches</h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {(() => {
+                        // Filter unassigned orders ready for pickup or preparation
+                        const availableFares = orders.filter(o => !o.driverId && o.status !== 'Delivered');
+                        if (availableFares.length === 0) {
+                          return (
+                            <div className="col-span-2 border border-dashed border-white/20 p-8 text-center text-slate-500 rounded-xl font-mono text-xs">
+                              No unassigned dispatches available in your sector.
+                            </div>
+                          );
+                        }
+
+                        return availableFares.map(order => (
+                          <div key={order.id} className="border border-white/15 rounded-xl p-4 bg-zinc-950/40 space-y-4 hover:border-white/40 transition-all flex flex-col justify-between">
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center border-b border-white/10 pb-2">
+                                <span className="font-mono font-bold text-white text-sm">{order.id}</span>
+                                <span className="text-[10px] font-black bg-white/10 px-1.5 py-0.5 rounded text-white uppercase tracking-wider border border-white/15">
+                                  ${Number(order.netPayout || order.grossPayout * 0.9).toFixed(2)} Net
+                                </span>
+                              </div>
+                              <div className="text-[11px] space-y-1 text-slate-300">
+                                <div>
+                                  <span className="text-slate-500 font-bold uppercase">Pickup:</span> {order.vendorAddress}
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 font-bold uppercase">Dropoff:</span> {order.customerAddress}
+                                </div>
+                                <div className="text-[10px] text-slate-500 mt-1">
+                                  Distance: {order.distance} mi &bull; Status: <span className="text-amber-400 font-semibold">{order.status}</span>
+                                </div>
+                              </div>
+                            </div>
+                            <button
+                              onClick={async () => {
+                                const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+                                try {
+                                  const res = await fetch(`${BACKEND_URL}/api/orders/${order.id}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                      driverId: driverUser.id,
+                                      status: 'Driver Assigned'
+                                    })
+                                  });
+                                  if (res.ok) {
+                                    const updated = await res.json();
+                                    setOrders(prev => prev.map(o => o.id === order.id ? { ...o, ...updated } : o));
+                                    alert("Fare successfully claimed! Proceed to Active Route tab to navigate.");
+                                    setDriverActiveSubTab('active');
+                                  } else {
+                                    alert("Could not claim fare. It may have been claimed already.");
+                                  }
+                                } catch (err) {
+                                  // Fallback
+                                  setOrders(prev => prev.map(o => o.id === order.id ? { ...o, driverId: driverUser.id, status: 'Driver Assigned' } : o));
+                                  setDriverActiveSubTab('active');
+                                }
+                              }}
+                              className="w-full py-2 border-2 border-white rounded-lg bg-white text-black font-extrabold text-[10px] uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                            >
+                              Claim Fare &amp; Route
+                            </button>
+                          </div>
+                        ));
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Subtab: Active Route */}
+                {driverActiveSubTab === 'active' && (
+                  <div className="space-y-4">
+                    {(() => {
+                      const activeOrder = orders.find(o => o.driverId === driverUser.id && o.status !== 'Delivered');
+                      if (!activeOrder) {
+                        return (
+                          <div className="border border-dashed border-white/20 p-8 text-center text-slate-500 rounded-xl font-mono text-xs max-w-md mx-auto">
+                            No active delivery routes. Open Fares Queue to claim a fare.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
+                          <div className="md:col-span-7 space-y-4">
+                            <div className="border border-white/10 p-4 rounded-xl bg-zinc-950/40 space-y-3">
+                              <div className="flex justify-between items-center border-b border-white/10 pb-2">
+                                <span className="font-mono font-bold text-white text-base">{activeOrder.id}</span>
+                                <span className="text-[10px] font-bold uppercase text-emerald-400 bg-emerald-950/40 border border-emerald-800/40 px-2 py-0.5 rounded">
+                                  {activeOrder.status}
+                                </span>
+                              </div>
+                              <div className="space-y-2 text-xs">
+                                <div>
+                                  <span className="text-slate-500 block uppercase font-bold text-[9px]">Pickup Address (Vendor)</span>
+                                  <span className="text-white font-medium">{activeOrder.vendorAddress}</span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-500 block uppercase font-bold text-[9px]">Dropoff Destination</span>
+                                  <span className="text-white font-medium">{activeOrder.customerAddress}</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-[10px] pt-1">
+                                  <div>
+                                    <span className="text-slate-500 block font-bold uppercase">Distance</span>
+                                    <span className="text-white">{activeOrder.distance} mi</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-500 block font-bold uppercase">Estimated Fare Payout</span>
+                                    <span className="text-white">${Number(activeOrder.netPayout || activeOrder.grossPayout * 0.9).toFixed(2)}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="pt-2">
+                              {activeOrder.status === 'Vendor Preparing Food' && (
+                                <div className="p-4 border border-amber-500/25 bg-amber-500/5 text-amber-400 rounded-xl text-center font-bold text-xs uppercase tracking-wider animate-pulse">
+                                  Waiting for Vendor to finish preparing food...
+                                </div>
+                              )}
+                              {(activeOrder.status === 'Driver Assigned' || activeOrder.status === 'Processing Order' || activeOrder.status === 'pending') && (
+                                <button
+                                  onClick={() => handleUpdateOrderStatus(activeOrder.id, 'On the Way')}
+                                  className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                >
+                                  Pick Up &amp; Start Transit
+                                </button>
+                              )}
+                              {activeOrder.status === 'On the Way' && (
+                                <button
+                                  onClick={async () => {
+                                    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+                                    try {
+                                      const res = await fetch(`${BACKEND_URL}/api/orders/${activeOrder.id}`, {
+                                        method: 'PATCH',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ status: 'Delivered' })
+                                      });
+                                      if (res.ok) {
+                                        const updated = await res.json();
+                                        setOrders(prev => prev.map(o => o.id === activeOrder.id ? { ...o, ...updated } : o));
+                                        
+                                        // Also add to finance log locally for demo
+                                        const financeDoc = {
+                                          orderId: activeOrder.id,
+                                          totalDistance: activeOrder.distance,
+                                          grossDriverPay: activeOrder.grossPayout,
+                                          driverPay: activeOrder.netPayout || activeOrder.grossPayout * 0.9,
+                                          timestamp: new Date().toISOString()
+                                        };
+                                        setFinanceLogs(prev => [financeDoc, ...prev]);
+
+                                        alert("Delivery confirmed! Fare payout settled.");
+                                        setDriverActiveSubTab('earnings');
+                                      }
+                                    } catch (err) {
+                                      setOrders(prev => prev.map(o => o.id === activeOrder.id ? { ...o, status: 'Delivered' } : o));
+                                      setDriverActiveSubTab('earnings');
+                                    }
+                                  }}
+                                  className="w-full py-3.5 border-2 border-emerald-500 rounded-xl bg-emerald-500 text-white font-extrabold text-xs uppercase hover:bg-emerald-600 transition-all cursor-pointer font-heading flex justify-center items-center gap-1.5 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse"
+                                >
+                                  <Check className="w-4 h-4" />
+                                  Confirm Arrival &amp; Deliver
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-5 border border-white/10 rounded-xl p-4 bg-zinc-950/40 space-y-4">
+                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 font-heading">Transit Telemetry</h4>
+                            <div className="h-44 bg-slate-900/60 rounded-lg flex flex-col justify-center items-center relative overflow-hidden border border-white/5">
+                              {/* Background Grid */}
+                              <div className="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(#fff_1px,transparent_1px)] [background-size:16px_16px]"></div>
+                              <Navigation className="w-8 h-8 text-white animate-bounce relative z-10" />
+                              <div className="text-center mt-2 relative z-10">
+                                <span className="text-[10px] text-white font-mono font-bold block uppercase">Live Geo-tracking</span>
+                                <span className="text-[9px] text-slate-500 font-mono">Syncing GPS coordinates with Admin console...</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Subtab: Earnings */}
+                {driverActiveSubTab === 'earnings' && (
+                  <div className="space-y-6">
+                    {(() => {
+                      const completedFares = orders.filter(o => o.driverId === driverUser.id && o.status === 'Delivered');
+                      const totalEarnings = completedFares.reduce((sum, o) => sum + (o.netPayout || o.grossPayout * 0.9), 0);
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                            <div className="border border-white/15 p-4 rounded-xl bg-zinc-950/40">
+                              <span className="text-slate-500 block uppercase font-bold text-[9px] tracking-wider mb-1">Total Deliveries</span>
+                              <span className="text-2xl font-black text-white font-mono">{completedFares.length}</span>
+                            </div>
+                            <div className="border border-white/15 p-4 rounded-xl bg-zinc-950/40">
+                              <span className="text-slate-500 block uppercase font-bold text-[9px] tracking-wider mb-1">Gross Settled</span>
+                              <span className="text-2xl font-black text-white font-mono">${totalEarnings.toFixed(2)}</span>
+                            </div>
+                            <div className="border border-white/15 p-4 rounded-xl bg-zinc-950/40 flex flex-col justify-between">
+                              <div>
+                                <span className="text-slate-500 block uppercase font-bold text-[9px] tracking-wider mb-1">Available to Withdraw</span>
+                                <span className="text-2xl font-black text-emerald-400 font-mono">${totalEarnings.toFixed(2)}</span>
+                              </div>
+                              {totalEarnings > 0 && (
+                                <button
+                                  onClick={() => {
+                                    alert(`🎉 Settlement success! $${totalEarnings.toFixed(2)} transferred to your linked bank ledger.`);
+                                  }}
+                                  className="mt-2 py-1.5 border border-white rounded text-[9px] font-black uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                >
+                                  Withdraw Fares
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="border border-white/15 rounded-xl overflow-hidden bg-black/40">
+                            <div className="overflow-x-auto">
+                              <table className="w-full text-left text-xs">
+                                <thead>
+                                  <tr className="border-b border-white/20 bg-white/5 uppercase text-slate-400 font-bold font-heading">
+                                    <th className="p-3">Fare ID</th>
+                                    <th className="p-3">Distance</th>
+                                    <th className="p-3">Payout</th>
+                                    <th className="p-3 text-right">Method</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {completedFares.length === 0 ? (
+                                    <tr>
+                                      <td colSpan="4" className="p-6 text-center text-slate-500 font-mono">
+                                        No completed delivery fares recorded.
+                                      </td>
+                                    </tr>
+                                  ) : (
+                                    completedFares.map(order => (
+                                      <tr key={order.id} className="border-b border-white/10 hover:bg-white/5 transition-all text-slate-300">
+                                        <td className="p-3 font-mono font-bold text-white">{order.id}</td>
+                                        <td className="p-3">{order.distance} mi</td>
+                                        <td className="p-3 font-mono font-bold text-emerald-400">${Number(order.netPayout || order.grossPayout * 0.9).toFixed(2)}</td>
+                                        <td className="p-3 text-right text-slate-500 uppercase font-mono">Curbside Split</td>
+                                      </tr>
+                                    ))
+                                  )}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Custom Admin Panel Tab View */}
         {activeTab === 'admin' && isStaffAuthenticated && (
           <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
@@ -3067,98 +4777,348 @@ export default function App() {
             ) : (
               <div className="border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
                 {/* Admin Header */}
-                <div className="flex justify-between items-center border-b border-white/20 pb-4 flex-wrap gap-4">
-                  <div>
-                    <h2 className="text-2xl font-bold uppercase text-white font-heading">Command Center Dashboard</h2>
-                    <p className="text-xs text-slate-400 mt-0.5">Manage drivers, vendors, and finance ledgers in one location.</p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setAdminSubTab('drivers')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        adminSubTab === 'drivers' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Drivers
-                    </button>
-                    <button
-                      onClick={() => setAdminSubTab('vendors')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        adminSubTab === 'vendors' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Vendors
-                    </button>
-                    <button
-                      onClick={() => setAdminSubTab('applications')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        adminSubTab === 'applications' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Apps
-                    </button>
-                    <button
-                      onClick={() => setAdminSubTab('finance')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        adminSubTab === 'finance' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Finance
-                    </button>
-                    <button
-                      onClick={() => setAdminSubTab('integrations')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        adminSubTab === 'integrations' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Integrations
-                    </button>
-                  </div>
-                </div>
+                {(() => {
+                  const pendingDriversCount = drivers.filter(d => d.status === 'pending').length;
+                  const pendingVendorAppsCount = vendorApplications.filter(a => a.status === 'pending').length;
+                  const pendingUpgradesCount = upgradeRequests.filter(u => u.status === 'pending').length;
+                  const totalAppsCount = pendingVendorAppsCount + pendingUpgradesCount;
+                  const pendingOrdersCount = orders.filter(o => o.status === 'pending').length;
 
-                {/* Public Registration Links Widget */}
-                <div className="p-4 border border-white/10 rounded-xl bg-zinc-950/40 grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
-                  <div>
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Public Vendor Onboarding URL</h4>
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="text" 
-                        readOnly 
-                        value={`${window.location.origin}/vendor-onboard`}
-                        className="w-full bg-black border border-white/10 text-xs px-2.5 py-1.5 rounded-lg text-slate-300 font-mono"
-                      />
-                      <button 
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}/vendor-onboard`);
-                          alert("Vendor Onboarding URL copied to clipboard!");
-                        }}
-                        className="px-3 py-1.5 bg-white text-black hover:bg-black hover:text-white border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer"
-                      >
-                        Copy
-                      </button>
+                  let unrepliedSupportCount = 0;
+                  for (let i = supportMessages.length - 1; i >= 0; i--) {
+                    if (supportMessages[i].sender === 'admin') break;
+                    if (supportMessages[i].sender === 'user') unrepliedSupportCount++;
+                  }
+
+                  const alerts = [];
+                  orders.forEach(o => {
+                    if (o.status === 'pending') {
+                      alerts.push({
+                        id: `order-${o.id}`,
+                        type: 'order',
+                        text: `Order ${o.id} is unassigned and pending dispatch.`,
+                        tab: 'finance',
+                        severity: 'rose'
+                      });
+                    }
+                  });
+                  drivers.forEach(d => {
+                    if (d.status === 'pending') {
+                      alerts.push({
+                        id: `driver-${d.id}`,
+                        type: 'driver',
+                        text: `Driver registration ${d.fullName} requires screening.`,
+                        tab: 'drivers',
+                        severity: 'amber'
+                      });
+                    }
+                  });
+                  vendorApplications.forEach(a => {
+                    if (a.status === 'pending') {
+                      alerts.push({
+                        id: `v-app-${a.id}`,
+                        type: 'vendor',
+                        text: `Vendor onboarding request ${a.name} is pending review.`,
+                        tab: 'applications',
+                        severity: 'amber'
+                      });
+                    }
+                  });
+                  upgradeRequests.forEach(u => {
+                    if (u.status === 'pending') {
+                      alerts.push({
+                        id: `upgrade-${u.id}`,
+                        type: 'upgrade',
+                        text: `Multi-truck fleet upgrade request from ${u.vendorName} is pending.`,
+                        tab: 'applications',
+                        severity: 'amber'
+                      });
+                    }
+                  });
+                  
+                  if (supportMessages.length > 0 && supportMessages[supportMessages.length - 1].sender === 'user') {
+                    alerts.push({
+                      id: 'support-chat-alert',
+                      type: 'support',
+                      text: 'Customer support chat requires administrator response.',
+                      tab: 'support',
+                      severity: 'emerald'
+                    });
+                  }
+
+                  return (
+                    <div className="space-y-6">
+                      <div className="flex justify-between items-center border-b border-white/20 pb-4 flex-wrap gap-4">
+                        <div className="flex items-center gap-3">
+                          <div>
+                            <div className="flex items-center gap-3">
+                              <h2 className="text-2xl font-bold uppercase text-white font-heading">Command Center Dashboard</h2>
+                              <div className="relative">
+                                <button
+                                  onClick={() => setIsAdminNotificationsOpen(!isAdminNotificationsOpen)}
+                                  className={`p-2 rounded-lg border border-white/20 hover:border-white transition-all bg-white/5 text-white cursor-pointer hover:bg-white/10 flex items-center justify-center relative ${
+                                    alerts.length > 0 ? 'animate-[pulse_2s_infinite]' : ''
+                                  }`}
+                                  title="View Alerts"
+                                >
+                                  <Bell className={`w-5 h-5 ${alerts.length > 0 ? 'text-amber-400' : 'text-slate-300'}`} />
+                                  {alerts.length > 0 && (
+                                    <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center shadow-[0_0_8px_rgba(225,29,72,0.8)]">
+                                      {alerts.length}
+                                    </span>
+                                  )}
+                                </button>
+                                
+                                {isAdminNotificationsOpen && (
+                                  <div className="absolute left-0 mt-2 w-80 bg-black/95 border-2 border-white rounded-xl shadow-2xl p-4 z-50 space-y-3 backdrop-blur-md max-h-96 overflow-y-auto">
+                                    <div className="flex justify-between items-center border-b border-white/10 pb-2">
+                                      <span className="text-xs font-black uppercase tracking-wider text-white">Active Alerts ({alerts.length})</span>
+                                      <button 
+                                        onClick={() => setIsAdminNotificationsOpen(false)}
+                                        className="text-[10px] text-slate-400 hover:text-white uppercase font-bold"
+                                      >
+                                        Close
+                                      </button>
+                                    </div>
+                                    
+                                    {alerts.length === 0 ? (
+                                      <div className="py-4 text-center text-xs text-slate-500 font-mono">
+                                        No active alerts. System status nominal.
+                                      </div>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {alerts.map(alert => (
+                                          <div 
+                                            key={alert.id}
+                                            onClick={() => {
+                                              setAdminSubTab(alert.tab);
+                                              setIsAdminNotificationsOpen(false);
+                                            }}
+                                            className="p-2.5 rounded-lg border border-white/10 bg-white/5 hover:bg-white/10 hover:border-white transition-all cursor-pointer text-left space-y-1"
+                                          >
+                                            <div className="flex justify-between items-center">
+                                              <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                                alert.severity === 'rose' ? 'bg-rose-950/40 text-rose-400 border border-rose-800/40' :
+                                                alert.severity === 'amber' ? 'bg-amber-950/40 text-amber-400 border border-amber-800/40' :
+                                                'bg-emerald-950/40 text-emerald-400 border border-emerald-800/40'
+                                              }`}>
+                                                {alert.type}
+                                              </span>
+                                              <span className="text-[8px] text-slate-400 font-mono uppercase font-black">Go to {alert.tab} &rarr;</span>
+                                            </div>
+                                            <p className="text-xs text-slate-200 font-medium leading-relaxed font-sans">{alert.text}</p>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-0.5">Manage drivers, vendors, and fleet operations in one location.</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 flex-wrap">
+                          <button
+                            onClick={() => setAdminSubTab('drivers')}
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                              adminSubTab === 'drivers' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <span>Drivers</span>
+                            {pendingDriversCount > 0 && (
+                              <span className="w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center animate-pulse shadow-[0_0_8px_rgba(225,29,72,0.6)]">
+                                {pendingDriversCount}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setAdminSubTab('orders')}
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                              adminSubTab === 'orders' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <span>Orders</span>
+                            {pendingOrdersCount > 0 && (
+                              <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-[9px] font-black flex items-center justify-center animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.6)]">
+                                {pendingOrdersCount}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setAdminSubTab('vendors')}
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                              adminSubTab === 'vendors' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <span>Vendors</span>
+                          </button>
+                          <button
+                            onClick={() => setAdminSubTab('applications')}
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                              adminSubTab === 'applications' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <span>Apps</span>
+                            {totalAppsCount > 0 && (
+                              <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-[9px] font-black flex items-center justify-center animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.6)]">
+                                {totalAppsCount}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setAdminSubTab('finance')}
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                              adminSubTab === 'finance' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <span>Finance</span>
+                            {pendingOrdersCount > 0 && (
+                              <span className="w-4 h-4 rounded-full bg-rose-600 text-white text-[9px] font-black flex items-center justify-center animate-pulse shadow-[0_0_8px_rgba(225,29,72,0.6)]">
+                                {pendingOrdersCount}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setAdminSubTab('support')}
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                              adminSubTab === 'support' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                            }`}
+                          >
+                            <span>Support</span>
+                            {unrepliedSupportCount > 0 && (
+                              <span className="w-4 h-4 rounded-full bg-emerald-500 text-black text-[9px] font-black flex items-center justify-center animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.6)]">
+                                {unrepliedSupportCount}
+                              </span>
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setAdminSubTab('integrations')}
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer ${
+                              adminSubTab === 'integrations' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                            }`}
+                          >
+                            Integrations
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Live Operations Alerts Console */}
+                      {alerts.length > 0 && (
+                        <div className="border border-white/20 p-4 rounded-xl bg-zinc-950/60 shadow-[0_0_15px_rgba(255,255,255,0.05)] animate-fade-in space-y-3">
+                          <div className="flex justify-between items-center border-b border-white/10 pb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+                              <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest font-heading">
+                                Live Operations Alerts ({alerts.length})
+                              </span>
+                            </div>
+                            <span className="text-[9px] font-mono text-zinc-500 uppercase">Real-Time Monitor Active</span>
+                          </div>
+                          <div className="grid grid-cols-1 gap-2 max-h-[160px] overflow-y-auto pr-1">
+                            {alerts.map(alert => (
+                              <div 
+                                key={alert.id} 
+                                onClick={() => setAdminSubTab(alert.tab)}
+                                className="flex justify-between items-center p-2.5 rounded-lg border border-white/5 bg-black/45 hover:bg-white/5 transition-all cursor-pointer group text-xs text-slate-300"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-1.5 h-1.5 rounded-full ${
+                                    alert.severity === 'rose' ? 'bg-rose-500 shadow-[0_0_6px_#ef4444]' :
+                                    alert.severity === 'amber' ? 'bg-amber-400 shadow-[0_0_6px_#fbbf24]' : 'bg-emerald-400 shadow-[0_0_6px_#34d399]'
+                                  }`}></span>
+                                  <span className="font-mono text-[10px] font-semibold text-slate-500 group-hover:text-white uppercase transition-colors">
+                                    [{alert.type}]
+                                  </span>
+                                  <span className="text-[11px] group-hover:text-white transition-colors">{alert.text}</span>
+                                </div>
+                                <span className="text-[9px] border border-white/10 px-2 py-0.5 rounded text-zinc-500 group-hover:border-white/30 group-hover:text-slate-300 uppercase font-bold tracking-wider transition-all">
+                                  Resolve &rarr;
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Public Registration Links Widget */}
+                      <div className="p-4 border border-white/10 rounded-xl bg-zinc-950/40 grid grid-cols-1 md:grid-cols-2 gap-4 animate-fade-in">
+                        <div>
+                          <div className="flex justify-between items-center mb-1.5">
+                            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Public Vendor Onboarding URL</h4>
+                            <button 
+                              onClick={() => {
+                                const val = 'https://shop.curbsides.xyz/pages/join-fleet';
+                                setCustomVendorUrl(val);
+                                localStorage.setItem('curbsides_custom_vendor_url', val);
+                              }}
+                              className="text-[9px] text-zinc-500 hover:text-white uppercase font-bold tracking-wider cursor-pointer"
+                            >
+                              Reset Default
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="text" 
+                              value={customVendorUrl}
+                              onChange={(e) => {
+                                setCustomVendorUrl(e.target.value);
+                                localStorage.setItem('curbsides_custom_vendor_url', e.target.value);
+                              }}
+                              className="w-full bg-black border border-white/10 text-xs px-2.5 py-1.5 rounded-lg text-slate-300 font-mono focus:border-white focus:outline-none"
+                              placeholder="Enter custom Shopify onboarding page URL"
+                            />
+                            <button 
+                              onClick={() => {
+                                navigator.clipboard.writeText(customVendorUrl);
+                                alert("Vendor Onboarding URL copied to clipboard!");
+                              }}
+                              className="px-3 py-1.5 bg-white text-black hover:bg-black hover:text-white border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between items-center mb-1.5">
+                            <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Public Driver Registration URL</h4>
+                            <button 
+                              onClick={() => {
+                                const val = 'https://shop.curbsides.xyz/pages/join-fleet';
+                                setCustomDriverUrl(val);
+                                localStorage.setItem('curbsides_custom_driver_url', val);
+                              }}
+                              className="text-[9px] text-zinc-500 hover:text-white uppercase font-bold tracking-wider cursor-pointer"
+                            >
+                              Reset Default
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <input 
+                              type="text" 
+                              value={customDriverUrl}
+                              onChange={(e) => {
+                                setCustomDriverUrl(e.target.value);
+                                localStorage.setItem('curbsides_custom_driver_url', e.target.value);
+                              }}
+                              className="w-full bg-black border border-white/10 text-xs px-2.5 py-1.5 rounded-lg text-slate-300 font-mono focus:border-white focus:outline-none"
+                              placeholder="Enter custom Shopify onboarding page URL"
+                            />
+                            <button 
+                              onClick={() => {
+                                navigator.clipboard.writeText(customDriverUrl);
+                                alert("Driver Registration URL copied to clipboard!");
+                              }}
+                              className="px-3 py-1.5 bg-white text-black hover:bg-black hover:text-white border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div>
-                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Public Driver Registration URL</h4>
-                    <div className="flex items-center gap-2">
-                      <input 
-                        type="text" 
-                        readOnly 
-                        value={`${window.location.origin}/driver-onboard`}
-                        className="w-full bg-black border border-white/10 text-xs px-2.5 py-1.5 rounded-lg text-slate-300 font-mono"
-                      />
-                      <button 
-                        onClick={() => {
-                          navigator.clipboard.writeText(`${window.location.origin}/driver-onboard`);
-                          alert("Driver Registration URL copied to clipboard!");
-                        }}
-                        className="px-3 py-1.5 bg-white text-black hover:bg-black hover:text-white border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer"
-                      >
-                        Copy
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* Sub Tab: Drivers */}
                 {adminSubTab === 'drivers' && (
@@ -3200,7 +5160,25 @@ export default function App() {
                               <td className="py-3 text-right">
                                 <button
                                   onClick={() => {
-                                    setDrivers(drivers.map(d => d.id === driver.id ? { ...d, status: d.status === 'approved' ? 'pending' : 'approved' } : d));
+                                    const nextStatus = driver.status === 'approved' ? 'pending' : 'approved';
+                                    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+                                    fetch(`${BACKEND_URL}/api/drivers/${driver.id}`, {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ status: nextStatus })
+                                    })
+                                    .then(res => {
+                                      if (!res.ok) throw new Error();
+                                      return res.json();
+                                    })
+                                    .then(updated => {
+                                      setDrivers(prev => prev.map(d => d.id === driver.id ? updated : d));
+                                    })
+                                    .catch(err => {
+                                      console.error("Error updating driver status:", err);
+                                      // Local fallback
+                                      setDrivers(prev => prev.map(d => d.id === driver.id ? { ...d, status: nextStatus } : d));
+                                    });
                                   }}
                                   className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase hover:bg-white hover:text-black transition-all"
                                 >
@@ -3315,6 +5293,111 @@ export default function App() {
                           </table>
                         </div>
                       )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub Tab: Orders Management */}
+                {adminSubTab === 'orders' && (
+                  <div className="space-y-6 animate-fade-in">
+                    <div className="flex justify-between items-center border-b border-white/20 pb-4">
+                      <div>
+                        <h3 className="text-xl font-bold uppercase text-white font-heading">Global Orders Registry</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">View, monitor, and assign drivers to pending curbside shipments.</p>
+                      </div>
+                    </div>
+
+                    <div className="border border-white/20 rounded-xl overflow-hidden bg-black/40 backdrop-blur-md">
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="border-b border-white/25 bg-white/5 uppercase text-slate-400 font-bold font-heading">
+                              <th className="p-3.5">Order ID</th>
+                              <th className="p-3.5">Vendor Address</th>
+                              <th className="p-3.5">Destination</th>
+                              <th className="p-3.5">Fares</th>
+                              <th className="p-3.5">Status</th>
+                              <th className="p-3.5">Assigned Courier</th>
+                              <th className="p-3.5 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {orders.length === 0 ? (
+                              <tr>
+                                <td colSpan="7" className="p-8 text-center text-slate-500 font-mono">
+                                  No orders currently active in dispatch database.
+                                </td>
+                              </tr>
+                            ) : (
+                              orders.map(order => {
+                                const matchedDriver = drivers.find(d => d.id === order.driverId);
+                                const availableDrivers = drivers.filter(d => d.status === 'approved');
+
+                                return (
+                                  <tr key={order.id} className="border-b border-white/10 hover:bg-white/5 transition-all text-slate-300">
+                                    <td className="p-3.5 font-mono font-bold text-white">{order.id}</td>
+                                    <td className="p-3.5 max-w-xs truncate" title={order.vendorAddress}>{order.vendorAddress}</td>
+                                    <td className="p-3.5 max-w-xs truncate" title={order.customerAddress}>{order.customerAddress}</td>
+                                    <td className="p-3.5">
+                                      <div>Dist: {order.distance} mi</div>
+                                      <div className="text-[10px] text-slate-500 mt-0.5">Gross: ${Number(order.grossPayout || 0).toFixed(2)}</div>
+                                    </td>
+                                    <td className="p-3.5">
+                                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                                        order.status === 'pending' || order.status === 'Processing Order' ? 'bg-amber-950/40 text-amber-400 border-amber-800/40 animate-pulse' :
+                                        order.status === 'Vendor Preparing Food' ? 'bg-orange-950/40 text-orange-400 border-orange-800/40' :
+                                        order.status === 'Driver Assigned' ? 'bg-blue-950/40 text-blue-400 border-blue-800/40' :
+                                        order.status === 'On the Way' ? 'bg-indigo-950/40 text-indigo-400 border-indigo-800/40' :
+                                        order.status === 'Delivered' ? 'bg-emerald-950/40 text-emerald-400 border-emerald-800/40' :
+                                        'bg-zinc-950/40 text-slate-400 border-slate-800/40'
+                                      }`}>
+                                        {order.status}
+                                      </span>
+                                    </td>
+                                    <td className="p-3.5">
+                                      {matchedDriver ? (
+                                        <div className="flex items-center gap-1.5 text-white font-semibold">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                          {matchedDriver.fullName}
+                                        </div>
+                                      ) : (
+                                        <span className="text-slate-500 font-mono italic">Unassigned</span>
+                                      )}
+                                    </td>
+                                    <td className="p-3.5 text-right">
+                                      {!order.driverId || order.status === 'pending' || order.status === 'Processing Order' ? (
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          <select
+                                            id={`assign-driver-select-${order.id}`}
+                                            className="px-2 py-1 bg-black border border-white/20 rounded text-[10px] text-white focus:border-white focus:outline-none"
+                                            defaultValue=""
+                                          >
+                                            <option value="" disabled>Select Driver...</option>
+                                            {availableDrivers.map(d => (
+                                              <option key={d.id} value={d.id}>{d.fullName}</option>
+                                            ))}
+                                          </select>
+                                          <button
+                                            onClick={() => {
+                                              const select = document.getElementById(`assign-driver-select-${order.id}`);
+                                              if (select) handleAssignDriver(order.id, select.value);
+                                            }}
+                                            className="px-2.5 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                          >
+                                            Assign
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <span className="text-[10px] text-slate-500 uppercase font-mono">Dispatched</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -3501,6 +5584,128 @@ export default function App() {
                           * HMAC signature <code className="bg-white/10 px-1 rounded text-white text-[9px]">X-Shopify-Hmac-Sha256</code> is validated at the middleware endpoint before dispatching payload.
                         </div>
                       </div>
+
+                      {/* Auth & Access Guide Panel */}
+                      <div className="md:col-span-2 border border-white/20 p-5 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                          <Shield className="w-5 h-5 text-amber-500" />
+                          <h4 className="text-sm font-bold uppercase text-white font-heading">Driver & Vendor Authentication Guide</h4>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-slate-300 leading-normal">
+                          <div className="space-y-2">
+                            <h5 className="font-extrabold uppercase text-white flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> Vendor Flow
+                            </h5>
+                            <p>
+                              1. **Application:** Vendors apply using the custom HTML page embedded in the Shopify theme (customizable above).
+                            </p>
+                            <p>
+                              2. **Staff Invitation:** Admin clicks **Invite Staff** in the **Apps** queue, sending a Shopify staff invite link.
+                            </p>
+                            <p>
+                              3. **Inventory Management:** Vendors accept the invite to manage their plates, pricing, and orders directly inside Shopify.
+                            </p>
+                            <p>
+                              4. **Live Dashboard & GPS:** Vendors sign in to the **Vendor Portal** (top right menu) using their registered email and staff passcode <code className="bg-white/10 px-1 rounded text-white font-mono text-[10px]">vendor-123</code> to toggle their active food truck status and publish coordinates.
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            <h5 className="font-extrabold uppercase text-white flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 bg-rose-500 rounded-full"></span> Driver Flow
+                            </h5>
+                            <p>
+                              1. **Application:** Drivers apply using the registration form. Their profile appears in the **Drivers** tab.
+                            </p>
+                            <p>
+                              2. **Credentials & Approval:** Fleet managers toggle their status to approved. Approved drivers receive system-generated credentials via SMS/email.
+                            </p>
+                            <p>
+                              3. **Operations Console:** Drivers use their credentials to log into their transit companion app.
+                            </p>
+                            <p>
+                              4. **Fares & Claims:** Drivers claim unassigned orders, sync live geolocations, track distances, and withdraw split commissions.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sub Tab: Support Chat Console */}
+                {adminSubTab === 'support' && (
+                  <div className="space-y-4 animate-fade-in">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 font-heading">Support Helpdesk Chat</h3>
+                        <p className="text-[10px] text-zinc-500">Respond to customer and field operator support inquiries.</p>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (confirm("Reset chat history for this demo?")) {
+                            setSupportMessages([
+                              { id: 'm-1', sender: 'admin', text: 'Welcome to CURBSIDES Live Support! How can we assist you today?', timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
+                            ]);
+                          }
+                        }}
+                        className="text-[9px] border border-zinc-800 bg-zinc-950 px-2.5 py-1 rounded text-zinc-500 hover:text-white hover:border-zinc-500 transition-all uppercase font-bold cursor-pointer"
+                      >
+                        Reset Chat
+                      </button>
+                    </div>
+
+                    <div className="border border-white/10 rounded-xl bg-zinc-950/40 overflow-hidden flex flex-col h-[400px]">
+                      {/* Chat Messages */}
+                      <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-zinc-950/20 flex flex-col">
+                        {supportMessages.map(msg => (
+                          <div key={msg.id} className={`flex ${msg.sender === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                            <div className={`max-w-[70%] rounded-xl p-3 border text-xs leading-normal ${
+                              msg.sender === 'admin'
+                                ? 'bg-white text-black border-white'
+                                : 'bg-black text-white border-white/20'
+                            }`}>
+                              <span className="block text-[8px] font-bold uppercase tracking-wider mb-1 text-slate-500">
+                                {msg.sender === 'admin' ? 'Administrator' : 'Customer'}
+                              </span>
+                              <p className="m-0 font-medium whitespace-pre-wrap">{msg.text}</p>
+                              <span className={`block text-[8px] mt-1 text-right font-mono ${
+                                msg.sender === 'admin' ? 'text-zinc-600' : 'text-slate-500'
+                              }`}>{msg.timestamp}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Chat Input */}
+                      <form 
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!adminSupportInput.trim()) return;
+                          const newMsg = {
+                            id: 'm-' + Date.now(),
+                            sender: 'admin',
+                            text: adminSupportInput.trim(),
+                            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                          };
+                          setSupportMessages(prev => [...prev, newMsg]);
+                          setAdminSupportInput('');
+                        }} 
+                        className="p-3 border-t border-white/20 bg-black flex gap-2"
+                      >
+                        <input
+                          type="text"
+                          placeholder="Type reply as Administrator..."
+                          value={adminSupportInput}
+                          onChange={(e) => setAdminSupportInput(e.target.value)}
+                          className="flex-1 px-3 py-2 rounded-lg bg-zinc-950 border border-white/10 text-xs text-white focus:border-white focus:outline-none"
+                        />
+                        <button
+                          type="submit"
+                          className="px-4 py-2 border-2 border-white bg-white text-black hover:bg-black hover:text-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading"
+                        >
+                          Send Reply
+                        </button>
+                      </form>
                     </div>
                   </div>
                 )}
@@ -4071,15 +6276,118 @@ export default function App() {
               )}
 
               <button
-                onClick={handleCheckout}
+                onClick={() => {
+                  setIsCartOpen(false);
+                  setShowSandboxCheckout(true);
+                }}
                 disabled={cart.length === 0 || isCheckoutLoading}
                 className="w-full py-4 border-2 border-white rounded-xl bg-white text-black font-extrabold text-sm uppercase tracking-widest hover:bg-black hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer font-heading"
               >
-                {isCheckoutLoading ? "Loading..." : "Tap to checkout"}
+                Checkout (Sandbox Simulation)
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Sandbox Checkout Simulation */}
+      {showSandboxCheckout && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-md border-2 border-white bg-black rounded-2xl p-6 md:p-8 shadow-2xl relative space-y-6">
+            <button 
+              onClick={() => setShowSandboxCheckout(false)}
+              className="absolute top-4 right-4 p-2 border-2 border-white rounded-lg hover:bg-white hover:text-black transition-all cursor-pointer text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div>
+              <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
+                SECURE SANDBOX CHECKOUT
+              </span>
+              <h3 className="text-xl font-bold uppercase text-white font-heading mt-2">Place Sandbox Order</h3>
+              <p className="text-xs text-slate-400 mt-1">This will simulate your Shopify cart checkout and automatically dispatch to Shipday (Prepaid Credit Card).</p>
+            </div>
+
+            {checkoutError && (
+              <div className="p-3 border border-rose-500 bg-rose-950/20 text-rose-500 text-xs font-bold uppercase text-center rounded">
+                {checkoutError}
+              </div>
+            )}
+
+            <form onSubmit={handlePlaceSandboxOrder} className="space-y-4 text-white">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="John Doe"
+                  value={checkoutName}
+                  onChange={(e) => setCheckoutName(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="johndoe@example.com"
+                  value={checkoutEmail}
+                  onChange={(e) => setCheckoutEmail(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="555-0199"
+                  value={checkoutPhone}
+                  onChange={(e) => setCheckoutPhone(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Delivery Location (NYC Zone)</label>
+                <select
+                  value={checkoutAddress}
+                  onChange={(e) => setCheckoutAddress(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none capitalize font-sans"
+                >
+                  <option value="Lower East Side, New York, NY 10038">Lower East Side (Manhattan)</option>
+                  <option value="East Village, New York, NY 10003">East Village (Manhattan)</option>
+                  <option value="Brooklyn Heights, Brooklyn, NY 11201">Brooklyn Heights (Brooklyn)</option>
+                  <option value="Williamsburg, Brooklyn, NY 11211">Williamsburg (Brooklyn)</option>
+                  <option value="Harlem, New York, NY 10027">Harlem (Manhattan)</option>
+                  <option value="Astoria, Queens, NY 11102">Astoria (Queens)</option>
+                  <option value="Flushing, Queens, NY 11354">Flushing (Queens)</option>
+                  <option value="Dumbo, Brooklyn, NY 11201">Dumbo (Brooklyn)</option>
+                </select>
+              </div>
+
+              <div className="pt-2">
+                <div className="flex justify-between items-center text-xs font-bold uppercase mb-4 border-t border-white/10 pt-4">
+                  <span>Fare Total:</span>
+                  <span>${getCartTotal().toFixed(2)}</span>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isCheckoutLoading}
+                  className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all disabled:opacity-40 flex items-center justify-center gap-2 cursor-pointer font-heading"
+                >
+                  {isCheckoutLoading ? "Processing Transit..." : "Confirm & Place Order"}
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
