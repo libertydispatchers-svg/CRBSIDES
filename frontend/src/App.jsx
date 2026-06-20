@@ -414,6 +414,19 @@ export default function App() {
           }
         })
         .catch(err => console.log('Backend /api/drivers not available, using mock drivers.', err));
+
+      // Fetch vendor applications list
+      fetch(`${BACKEND_URL}/api/vendor-applications`)
+        .then(res => {
+          if (!res.ok) throw new Error();
+          return res.json();
+        })
+        .then(data => {
+          if (data && data.length > 0) {
+            setVendorApplications(data);
+          }
+        })
+        .catch(err => console.log('Backend /api/vendor-applications not available, using mock applications.', err));
     }
   }, [activeTab, isAdminAuthenticated, adminSubTab]);
 
@@ -621,17 +634,32 @@ export default function App() {
     }
 
     const newApp = {
-      id: 'v-app-' + Date.now(),
       name: vendorName.trim(),
       email: vendorEmail.trim(),
       phone: vendorPhone.trim(),
       foodType: vendorFoodType.trim(),
-      borough: vendorBorough,
-      status: 'pending'
+      borough: vendorBorough
     };
 
-    setVendorApplications([...vendorApplications, newApp]);
-    setVendorOnboardSuccess(true);
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    fetch(`${BACKEND_URL}/api/vendor-applications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newApp)
+    })
+    .then(res => {
+      if (!res.ok) throw new Error();
+      return res.json();
+    })
+    .then(savedApp => {
+      setVendorApplications(prev => [...prev, savedApp]);
+      setVendorOnboardSuccess(true);
+    })
+    .catch(() => {
+      // Fallback to local state if server is not accessible
+      setVendorApplications(prev => [...prev, { ...newApp, id: 'v-app-' + Date.now(), status: 'pending' }]);
+      setVendorOnboardSuccess(true);
+    });
 
     // Clear form fields
     setVendorName('');
@@ -651,7 +679,6 @@ export default function App() {
     }
 
     const newDriver = {
-      id: 'd-' + Date.now(),
       fullName: driverNameInput.trim(),
       email: driverEmailInput.trim(),
       phone: driverPhoneInput.trim(),
@@ -662,8 +689,25 @@ export default function App() {
       earnings: 0.00
     };
 
-    setDrivers(prev => [...prev, newDriver]);
-    setDriverOnboardSuccess(true);
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    fetch(`${BACKEND_URL}/api/drivers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newDriver)
+    })
+    .then(res => {
+      if (!res.ok) throw new Error();
+      return res.json();
+    })
+    .then(savedDriver => {
+      setDrivers(prev => [...prev, savedDriver]);
+      setDriverOnboardSuccess(true);
+    })
+    .catch(() => {
+      // Fallback to local state if server is not accessible
+      setDrivers(prev => [...prev, { ...newDriver, id: 'd-' + Date.now() }]);
+      setDriverOnboardSuccess(true);
+    });
 
     // Clear form fields
     setDriverNameInput('');

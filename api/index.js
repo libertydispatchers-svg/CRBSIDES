@@ -20,7 +20,10 @@ app.use(express.static(path.join(__dirname, "..", "frontend", "dist")));
 const db = {
   drivers: [],
   orders: [],
-  finance: []
+  finance: [],
+  vendorApplications: [
+    { id: 'v-app-1', name: 'Halal Cart Kings', email: 'kings@halalcart.com', phone: '555-9000', foodType: 'Gyros & Rice', borough: 'Manhattan', status: 'pending' }
+  ]
 };
 
 // Seed some initial orders for high-fidelity demonstration
@@ -174,6 +177,31 @@ app.patch("/api/orders/:id", (req, res) => {
 
 app.get("/api/finance", (req, res) => {
   res.json(db.finance);
+});
+
+app.get("/api/vendor-applications", (req, res) => {
+  res.json(db.vendorApplications);
+});
+
+app.post("/api/vendor-applications", (req, res) => {
+  const application = {
+    id: "v-app-" + Date.now(),
+    ...req.body,
+    createdAt: new Date().toISOString(),
+    status: "pending"
+  };
+  db.vendorApplications.push(application);
+  res.status(201).json(application);
+});
+
+app.patch("/api/vendor-applications/:id", (req, res) => {
+  const idx = db.vendorApplications.findIndex(a => a.id === req.params.id);
+  if (idx !== -1) {
+    db.vendorApplications[idx] = { ...db.vendorApplications[idx], ...req.body };
+    res.json(db.vendorApplications[idx]);
+  } else {
+    res.status(404).json({ error: "Application not found" });
+  }
 });
 
 // --- SHOPIFY OAUTH HANDSHAKE ENDPOINTS ---
