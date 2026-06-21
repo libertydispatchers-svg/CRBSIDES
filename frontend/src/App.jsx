@@ -587,12 +587,18 @@ export default function App() {
     setVerificationError('');
 
     try {
-      const { auth, db, doc, getDoc, setDoc, googleProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } = await import('./firebase');
+      const { auth, db, doc, getDoc, setDoc, googleProvider, facebookProvider, appleProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } = await import('./firebase');
       
       let user = null;
 
       if (method === 'Google') {
         const result = await signInWithPopup(auth, googleProvider);
+        user = result.user;
+      } else if (method === 'Facebook') {
+        const result = await signInWithPopup(auth, facebookProvider);
+        user = result.user;
+      } else if (method === 'Apple') {
+        const result = await signInWithPopup(auth, appleProvider);
         user = result.user;
       } else if (method === 'Phone') {
         const phone = prompt("Enter your Mobile Phone Number (e.g., +15555555555):");
@@ -2148,6 +2154,22 @@ export default function App() {
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                           Google
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Facebook')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
+                        >
+                          <Facebook className="w-3.5 h-3.5" />
+                          Facebook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Apple')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Apple className="w-3.5 h-3.5" />
+                          Apple
+                        </button>
                         
                       </div>
                       <div className="grid grid-cols-2 gap-2.5">
@@ -2240,6 +2262,22 @@ export default function App() {
                         >
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                           Google
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Facebook')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
+                        >
+                          <Facebook className="w-3.5 h-3.5" />
+                          Facebook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Apple')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Apple className="w-3.5 h-3.5" />
+                          Apple
                         </button>
                         
                       </div>
@@ -3011,6 +3049,22 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Facebook', 'vendor')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
+                        >
+                          <Facebook className="w-3.5 h-3.5" />
+                          Facebook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Apple', 'vendor')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Apple className="w-3.5 h-3.5" />
+                          Apple
+                        </button>
                       
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
@@ -3129,6 +3183,22 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Facebook', 'vendor')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
+                        >
+                          <Facebook className="w-3.5 h-3.5" />
+                          Facebook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Apple', 'vendor')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Apple className="w-3.5 h-3.5" />
+                          Apple
+                        </button>
                       
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
@@ -3932,6 +4002,22 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Facebook', 'driver')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
+                        >
+                          <Facebook className="w-3.5 h-3.5" />
+                          Facebook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Apple', 'driver')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Apple className="w-3.5 h-3.5" />
+                          Apple
+                        </button>
                       
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
@@ -4039,6 +4125,22 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Facebook', 'driver')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
+                        >
+                          <Facebook className="w-3.5 h-3.5" />
+                          Facebook
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Apple', 'driver')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Apple className="w-3.5 h-3.5" />
+                          Apple
+                        </button>
                       
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">

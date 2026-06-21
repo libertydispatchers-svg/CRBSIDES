@@ -27,85 +27,35 @@ const db = {
   ]
 };
 
-// Firestore REST Configuration
-const PROJECT_ID = 'curbside-35431';
-const EMULATOR_HOST = process.env.FIRESTORE_EMULATOR_HOST || process.env.FIREBASE_FIRESTORE_EMULATOR_HOST;
-const FIRESTORE_BASE_URL = EMULATOR_HOST
-  ? `http://${EMULATOR_HOST}/v1/projects/${PROJECT_ID}/databases/(default)/documents`
-  : `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents`;
+const admin = require('firebase-admin');
 
-console.log(`[Database] Connecting to Firestore at: ${FIRESTORE_BASE_URL}`);
+if (!admin.apps.length) {
+  try {
+    const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT 
+      ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) 
+      : null;
 
-// Helpers to convert JSON to Firestore fields and vice versa
-function toFirestoreFields(obj) {
-  const fields = {};
-  for (const [key, val] of Object.entries(obj)) {
-    if (val === null || val === undefined) continue;
-    if (typeof val === 'string') {
-      fields[key] = { stringValue: val };
-    } else if (typeof val === 'number') {
-      fields[key] = { doubleValue: val };
-    } else if (typeof val === 'boolean') {
-      fields[key] = { booleanValue: val };
-    } else if (Array.isArray(val)) {
-      fields[key] = {
-        arrayValue: {
-          values: val.map(item => {
-            if (typeof item === 'string') return { stringValue: item };
-            if (typeof item === 'number') return { doubleValue: item };
-            return { stringValue: String(item) };
-          })
-        }
-      };
-    } else if (typeof val === 'object') {
-      fields[key] = { stringValue: JSON.stringify(val) };
-    }
-  }
-  return { fields };
-}
-
-function fromFirestoreFields(fields) {
-  const obj = {};
-  if (!fields) return obj;
-  for (const [key, wrapper] of Object.entries(fields)) {
-    if ('stringValue' in wrapper) {
-      const val = wrapper.stringValue;
-      if (val.startsWith('{') || val.startsWith('[')) {
-        try {
-          obj[key] = JSON.parse(val);
-        } catch (e) {
-          obj[key] = val;
-        }
-      } else {
-        obj[key] = val;
-      }
-    } else if ('doubleValue' in wrapper) {
-      obj[key] = Number(wrapper.doubleValue);
-    } else if ('integerValue' in wrapper) {
-      obj[key] = Number(wrapper.integerValue);
-    } else if ('booleanValue' in wrapper) {
-      obj[key] = wrapper.booleanValue;
-    } else if ('arrayValue' in wrapper) {
-      const vals = wrapper.arrayValue.values || [];
-      obj[key] = vals.map(v => {
-        if ('stringValue' in v) return v.stringValue;
-        if ('doubleValue' in v) return Number(v.doubleValue);
-        return null;
+    if (serviceAccount) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
       });
+      console.log("[Firebase Admin] Initialized securely with service account.");
+    } else {
+      admin.initializeApp();
+      console.log("[Firebase Admin] Initialized with default credentials.");
     }
+  } catch (err) {
+    console.error("[Firebase Admin] Failed to initialize:", err);
   }
-  return obj;
 }
 
-// REST Database operations
+const firestore = admin.firestore();
+
+// REST Database operations mapped to Admin SDK
 async function getCollection(collectionName) {
   try {
-    const response = await axios.get(`${FIRESTORE_BASE_URL}/${collectionName}?pageSize=200`);
-    const documents = response.data.documents || [];
-    return documents.map(doc => {
-      const id = doc.name.split('/').pop();
-      return { id, ...fromFirestoreFields(doc.fields) };
-    });
+    const snapshot = await firestore.collection(collectionName).get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (err) {
     console.error(`[Database] Error getting collection ${collectionName}:`, err.message);
     return db[collectionName] || [];
@@ -114,8 +64,9 @@ async function getCollection(collectionName) {
 
 async function getDocument(collectionName, docId) {
   try {
-    const response = await axios.get(`${FIRESTORE_BASE_URL}/${collectionName}/${docId}`);
-    return { id: docId, ...fromFirestoreFields(response.data.fields) };
+    const doc = await firestore.collection(collectionName).doc(docId).get();
+    if (!doc.exists) return null;
+    return { id: doc.id, ...doc.data() };
   } catch (err) {
     console.error(`[Database] Error getting document ${collectionName}/${docId}:`, err.message);
     return db[collectionName]?.find(item => item.id === docId) || null;
@@ -124,8 +75,8 @@ async function getDocument(collectionName, docId) {
 
 async function addDocument(collectionName, docId, data) {
   try {
-    const payload = toFirestoreFields(data);
-    await axios.post(`${FIRESTORE_BASE_URL}/${collectionName}?documentId=${docId}`, payload);
+    await firestore.collection(collectionName).doc(docId).set(data);
+    // Update local memory fallback
     if (db[collectionName]) {
       const existingIdx = db[collectionName].findIndex(item => item.id === docId);
       if (existingIdx !== -1) {
@@ -148,8 +99,7 @@ async function addDocument(collectionName, docId, data) {
 
 async function updateDocument(collectionName, docId, data) {
   try {
-    const payload = toFirestoreFields(data);
-    await axios.patch(`${FIRESTORE_BASE_URL}/${collectionName}/${docId}`, payload);
+    await firestore.collection(collectionName).doc(docId).update(data);
     if (db[collectionName]) {
       const idx = db[collectionName].findIndex(item => item.id === docId);
       if (idx !== -1) {
