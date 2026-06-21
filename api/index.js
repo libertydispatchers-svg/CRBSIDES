@@ -27,21 +27,23 @@ const db = {
   ]
 };
 
-const admin = require('firebase-admin');
+const { initializeApp, cert, getApps } = require('firebase-admin/app');
+const { getFirestore } = require('firebase-admin/firestore');
 
-if (!admin.apps.length) {
+if (!getApps().length) {
   try {
     const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT 
       ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT) 
       : null;
 
     if (serviceAccount) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
+      initializeApp({
+        credential: cert(serviceAccount),
+        projectId: 'curbside-35431'
       });
       console.log("[Firebase Admin] Initialized securely with service account.");
     } else {
-      admin.initializeApp();
+      initializeApp({ projectId: 'curbside-35431' });
       console.log("[Firebase Admin] Initialized with default credentials.");
     }
   } catch (err) {
@@ -49,7 +51,7 @@ if (!admin.apps.length) {
   }
 }
 
-const firestore = admin.firestore();
+const firestore = getFirestore();
 
 // REST Database operations mapped to Admin SDK
 async function getCollection(collectionName) {

@@ -2170,6 +2170,14 @@ export default function App() {
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
                           Apple
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Phone')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          Phone
+                        </button>
                         
                       </div>
                       <div className="grid grid-cols-2 gap-2.5">
@@ -2278,6 +2286,14 @@ export default function App() {
                         >
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
                           Apple
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Phone')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          Phone
                         </button>
                         
                       </div>
@@ -3065,6 +3081,14 @@ export default function App() {
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
                           Apple
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Phone', 'vendor')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          Phone
+                        </button>
                       
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
@@ -3198,6 +3222,14 @@ export default function App() {
                         >
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
                           Apple
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Phone', 'vendor')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          Phone
                         </button>
                       
                     </div>
@@ -4018,6 +4050,14 @@ export default function App() {
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
                           Apple
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Phone', 'driver')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          Phone
+                        </button>
                       
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
@@ -4140,6 +4180,14 @@ export default function App() {
                         >
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
                           Apple
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSSOClick('Phone', 'driver')}
+                          className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
+                        >
+                          <Phone className="w-3.5 h-3.5" />
+                          Phone
                         </button>
                       
                     </div>
