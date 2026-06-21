@@ -11,12 +11,12 @@ import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 const USE_LOCAL_MOCK = true;
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDummyKeyForLocalTestingOnly",
+  apiKey: "AIzaSyA1rtHWGNu59FoiFLccRFM08y9lz6-6WRE",
   authDomain: "curbside-35431.firebaseapp.com",
   projectId: "curbside-35431",
-  storageBucket: "curbside-35431.appspot.com",
-  messagingSenderId: "77943542718",
-  appId: "1:77943542718:web:dummyappid"
+  storageBucket: "curbside-35431.firebasestorage.app",
+  messagingSenderId: "1065385279859",
+  appId: "1:1065385279859:web:c6c150379fe7f569c34506"
 };
 
 // 1. Initialize Real SDK
