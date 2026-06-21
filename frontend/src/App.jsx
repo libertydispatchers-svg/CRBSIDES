@@ -42,7 +42,9 @@ import {
   Zap,
   UserPlus,
   Clock,
-  Bell
+  Bell,
+  Facebook,
+  Apple
 } from 'lucide-react';
 
 export default function App() {
