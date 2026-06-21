@@ -2176,23 +2176,7 @@ export default function App() {
                         </button>
                       </div>
                     </div>
-                    
-                    <div className="pt-2 text-center border-t border-white/10">
-                      <p className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">Quick Demo Login</p>
-                      <button
-                        onClick={() => {
-                          setCustomerUser({
-                            name: 'ALICE SMITH',
-                            email: 'alice@example.com',
-                            phone: '555-0199',
-                            joinedDate: '06/15/2026'
-                          });
-                        }}
-                        className="mt-2 text-[10px] border border-zinc-800 bg-zinc-950 px-3 py-1 rounded text-zinc-300 hover:border-white transition-all uppercase font-semibold cursor-pointer"
-                      >
-                        Demo Account: Alice
-                      </button>
-                    </div>
+
                   </div>
                 )}
 
