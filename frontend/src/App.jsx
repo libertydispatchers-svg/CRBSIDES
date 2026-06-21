@@ -418,77 +418,53 @@ export default function App() {
 
   // Sync Finance and Drivers from local operations server if running
   useEffect(() => {
-    if (activeTab === 'admin' && isAdminAuthenticated) {
-      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    let unsubs = [];
+    
+    const setupSubscriptions = async () => {
+      const { db, collection, onSnapshot, query, orderBy } = await import('./firebase');
       
-      // Fetch finance ledger
-      fetch(`${BACKEND_URL}/api/finance`)
-        .then(res => {
-          if (!res.ok) throw new Error();
-          return res.json();
-        })
-        .then(data => {
-          if (data && data.length > 0) {
-            const mapped = data.map(item => ({
-              id: item.orderId || 'f-' + Math.random(),
-              orderId: item.orderId,
-              distance: item.totalDistance || item.distance || 0,
-              subtotal: item.subtotal || (item.vendorCommissionSplit ? item.vendorCommissionSplit * 10 : 0) || 0,
-              vendorCommission: item.vendorCommissionSplit || 0,
-              driverGross: item.grossDriverPay || 0,
-              driverCommission: item.driverCommissionSplit || 0,
-              driverPay: item.netDriverPayout || item.driverPay || 0,
-              platformRev: item.platformRevenue || item.platformRev || 0,
-              timestamp: item.timestamp || new Date().toISOString()
-            }));
-            setFinanceLogs(mapped);
-          }
-        })
-        .catch(err => console.log('Backend /api/finance not available, using mock logs.', err));
+      if (activeTab === 'admin' && isAdminAuthenticated) {
+        // Real-time finance ledger
+        const financeQ = query(collection(db, 'finance'), orderBy('timestamp', 'desc'));
+        unsubs.push(onSnapshot(financeQ, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          if (data.length > 0) setFinanceLogs(data);
+        }));
 
-      // Fetch driver list
-      fetch(`${BACKEND_URL}/api/drivers`)
-        .then(res => {
-          if (!res.ok) throw new Error();
-          return res.json();
-        })
-        .then(data => {
-          if (data && data.length > 0) {
-            setDrivers(data);
-          }
-        })
-        .catch(err => console.log('Backend /api/drivers not available, using mock drivers.', err));
+        // Real-time driver list
+        const driversQ = query(collection(db, 'drivers'));
+        unsubs.push(onSnapshot(driversQ, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          if (data.length > 0) setDrivers(data);
+        }));
 
-      // Fetch vendor applications list
-      fetch(`${BACKEND_URL}/api/vendor-applications`)
-        .then(res => {
-          if (!res.ok) throw new Error();
-          return res.json();
-        })
-        .then(data => {
-          if (data && data.length > 0) {
-            setVendorApplications(data);
-          }
-        })
-        .catch(err => console.log('Backend /api/vendor-applications not available, using mock applications.', err));
-    }
+        // Real-time vendor applications
+        const appsQ = query(collection(db, 'vendor-applications'), orderBy('createdAt', 'desc'));
+        unsubs.push(onSnapshot(appsQ, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          if (data.length > 0) setVendorApplications(data);
+        }));
+      }
 
-    if ((activeTab === 'admin' && isAdminAuthenticated) || (activeTab === 'vendor-portal' && vendorUser)) {
-      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-      // Fetch orders list
-      fetch(`${BACKEND_URL}/api/orders`)
-        .then(res => {
-          if (!res.ok) throw new Error();
-          return res.json();
-        })
-        .then(data => {
-          if (data && data.length > 0) {
+      if ((activeTab === 'admin' && isAdminAuthenticated) || (activeTab === 'vendor-portal' && vendorUser)) {
+        // Real-time orders
+        const ordersQ = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
+        unsubs.push(onSnapshot(ordersQ, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          if (data.length > 0) {
             setOrders(data);
           }
-        })
-        .catch(err => console.log('Backend /api/orders not available, using mock orders.', err));
-    }
-  }, [activeTab, isAdminAuthenticated, adminSubTab, vendorUser]);
+        }));
+      }
+    };
+    
+    setupSubscriptions();
+    
+    return () => {
+      unsubs.forEach(unsub => unsub());
+    };
+  }, [activeTab, isAdminAuthenticated, vendorUser]);
+
 
   // Leaflet Map Initialization
   useEffect(() => {
@@ -609,109 +585,102 @@ export default function App() {
   const handleSSOClick = async (method, role = 'customer') => {
     setCustomerAuthError('');
     setVerificationError('');
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
 
-    if (method === 'Google') {
-      try {
-        const { auth, googleProvider, signInWithPopup } = await import('./firebase');
+    try {
+      const { auth, db, doc, getDoc, setDoc, googleProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } = await import('./firebase');
+      
+      let user = null;
+
+      if (method === 'Google') {
         const result = await signInWithPopup(auth, googleProvider);
-        const user = result.user;
+        user = result.user;
+      } else if (method === 'Phone') {
+        const phone = prompt("Enter your Mobile Phone Number (e.g., +15555555555):");
+        if (!phone || !phone.trim()) return;
         
-        const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            uid: user.uid,
-            email: user.email,
-            name: user.displayName || user.email.split('@')[0],
-            role: role
-          })
-        });
-        
-        const data = await res.json();
-        if (!res.ok) {
-          throw new Error(data.error || 'Google Sign-In failed');
+        if (!window.recaptchaVerifier) {
+          window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
+            'size': 'invisible'
+          });
         }
         
-        if (data.user) {
-          if (data.user.role === 'admin' || data.user.email === 'libertydispatchers@gmail.com') {
-            setCustomerUser({ ...data.user, role: 'admin' });
-            setCustomerActiveSubTab('profile');
-            setActiveTab('admin');
-            setIsCustomerLoggedIn(true);
-          } else if (data.user.role === 'driver') {
-            if (data.user.status !== 'approved') {
-              alert("Your driver account is pending approval.");
-              return;
-            }
-            setDriverUser(data.user);
-            setDriverActiveSubTab('deliveries');
-            setActiveTab('driver-portal');
-          } else if (data.user.role === 'vendor') {
-            // Need to check vendor status
-            setVendorUser(data.user);
-            setVendorActiveSubTab('dashboard');
-            setActiveTab('vendor-portal');
-          } else {
-            setCustomerUser(data.user);
-            setCustomerActiveSubTab('profile');
-            setActiveTab('customer');
-            setIsCustomerLoggedIn(true);
-          }
-        }
-      } catch (err) {
-        console.error(err);
-        alert(err.message || "Google Sign In Failed");
+        const confirmationResult = await signInWithPhoneNumber(auth, phone, window.recaptchaVerifier);
+        const code = prompt("Enter the SMS verification code:");
+        if (!code) return;
+        
+        const result = await confirmationResult.confirm(code);
+        user = result.user;
+      } else {
+        alert(`${method} SSO not fully implemented with Firebase yet. Using Google or Phone instead.`);
+        return;
       }
-      return;
-    }
 
-    if (method === 'Phone') {
-      const phone = prompt("Enter your Mobile Phone Number for SMS/Phone verification:");
-      if (!phone) return;
-      if (!phone.trim()) {
-        alert("A valid phone number is required.");
-        return;
-      }
-      alert(`SMS containing verification code sent to ${phone}! (Simulation bypass code: 123456)`);
-      setVerificationPendingEmail(`sms-${role}-${phone.trim()}`);
-    } else {
-      const email = prompt(`Enter your ${method} Email Address to authorize and verify account:`);
-      if (!email) return;
-      if (!email.trim() || !email.includes('@')) {
-        alert("A valid email address is required.");
-        return;
-      }
-      fetch(`${BACKEND_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: email.split('@')[0].toUpperCase(),
-          email: email.trim(),
-          password: 'sso-password',
-          role: role
-        })
-      })
-      .then(res => {
-        if (res.ok || res.status === 409) {
-          if (res.status === 409) {
-            fetch(`${BACKEND_URL}/api/auth/login`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email: email.trim(), password: 'sso-password' })
-            }).then(() => {
-              setVerificationPendingEmail(email.trim());
-            });
-          } else {
-            setVerificationPendingEmail(email.trim());
-          }
-        } else {
-          alert("SSO authentication error. Please try again.");
+      if (user) {
+        let userDoc = await getDoc(doc(db, 'users', user.uid));
+        
+        let finalRole = role;
+        if (user.email && user.email.toLowerCase() === 'libertydispatchers@gmail.com') {
+          finalRole = 'admin';
         }
-      })
-      .catch(() => {
-        setVerificationPendingEmail(email.trim());
-      });
+        
+        if (!userDoc.exists()) {
+          const newUserProfile = {
+            id: user.uid,
+            email: user.email || user.phoneNumber || '',
+            name: user.displayName || (user.email ? user.email.split('@')[0].toUpperCase() : 'PHONE USER'),
+            role: finalRole,
+            createdAt: new Date().toISOString(),
+            isVerified: true
+          };
+          await setDoc(doc(db, 'users', user.uid), newUserProfile);
+          userDoc = await getDoc(doc(db, 'users', user.uid));
+        }
+
+        const dataUser = userDoc.data();
+        
+        if (dataUser.role === 'admin') {
+          setCustomerUser(dataUser);
+          setIsStaffAuthenticated(true);
+          setIsAdminAuthenticated(true);
+          setActiveTab('admin');
+        } else if (dataUser.role === 'driver') {
+          if (dataUser.status !== 'approved') {
+            alert("Your driver account is pending approval.");
+            return;
+          }
+          setDriverUser(dataUser);
+          setDriverActiveSubTab('deliveries');
+          setActiveTab('driver-portal');
+        } else if (dataUser.role === 'vendor') {
+          const matchedVendor = vendors.find(v => v.email?.toLowerCase() === dataUser.email?.toLowerCase() || v.name.toLowerCase().includes(dataUser.name.toLowerCase()));
+          if (matchedVendor) {
+            setVendorUser(matchedVendor);
+            setSelectedPortalVendorId(matchedVendor.id);
+          } else {
+            const fallbackVendor = {
+              id: dataUser.id || 'vendor-' + Date.now(),
+              name: dataUser.name,
+              email: dataUser.email,
+              borough: 'Manhattan, NYC',
+              isOpen: true,
+              rating: 5.0,
+              tags: ['Verified', 'Street Food'],
+              items: []
+            };
+            setVendorUser(fallbackVendor);
+            setSelectedPortalVendorId(fallbackVendor.id);
+          }
+          setVendorActiveSubTab('menu');
+          setActiveTab('vendor-portal');
+        } else {
+          setCustomerUser(dataUser);
+          setCustomerActiveSubTab('profile');
+          setActiveTab('account');
+        }
+      }
+    } catch (err) {
+      console.error(err);
+      alert(err.message || `${method} Sign In Failed`);
     }
   };
 
@@ -967,29 +936,15 @@ export default function App() {
 
   // Handle Vendor Approval and Sync to Shopify Product Catalog
   const handleApproveVendor = async (app) => {
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-
-    // Persist approval to database
     try {
-      await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved' })
-      });
-    } catch (err) {
-      console.error("Failed to persist vendor application approval:", err);
-    }
+      const { db, doc, updateDoc, setDoc } = await import('./firebase');
+      // Persist approval to database
+      await updateDoc(doc(db, 'vendor-applications', app.id), { status: 'approved' });
 
-    // Update application status to approved
-    setVendorApplications(prev => prev.map(a => a.id === app.id ? { ...a, status: 'approved' } : a));
-
-    // Automatically add to local vendors list to make it active in search directories
-    setVendors(prev => {
-      if (prev.some(v => v.email?.toLowerCase() === app.email?.toLowerCase())) {
-        return prev;
-      }
-      return [...prev, {
-        id: 'vendor-' + Date.now(),
+      // Automatically add to local vendors list to make it active in search directories
+      const newVendorId = 'vendor-' + Date.now();
+      const newVendor = {
+        id: newVendorId,
         name: app.name,
         email: app.email,
         borough: app.borough || 'Manhattan, NYC',
@@ -997,8 +952,14 @@ export default function App() {
         rating: 5.0,
         tags: ['Approved', 'Street Food'],
         items: []
-      }];
-    });
+      };
+      
+      // Also write this new vendor to the 'vendors' collection
+      await setDoc(doc(db, 'vendors', newVendorId), newVendor);
+      
+    } catch (err) {
+      console.error("Failed to persist vendor application approval or vendor creation:", err);
+    }
 
     const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token');
     const shopifyConfig = localStorage.getItem('curbsides_shopify_config');
@@ -1328,30 +1289,32 @@ export default function App() {
       setCustomerAuthError('All registration fields are required.');
       return;
     }
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: customerRegisterName.trim(),
-          email: customerRegisterEmail.trim(),
-          password: customerRegisterPassword,
-          role: 'customer'
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setVerificationPendingEmail(customerRegisterEmail.trim());
-        setCustomerRegisterName('');
-        setCustomerRegisterEmail('');
-        setCustomerRegisterPhone('');
-        setCustomerRegisterPassword('');
-      } else {
-        setCustomerAuthError(data.error || "Signup failed.");
-      }
+      const { auth, db, doc, setDoc, createUserWithEmailAndPassword } = await import('./firebase');
+      
+      const userCredential = await createUserWithEmailAndPassword(auth, customerRegisterEmail.trim(), customerRegisterPassword);
+      const user = userCredential.user;
+      
+      const role = customerRegisterEmail.trim().toLowerCase() === 'libertydispatchers@gmail.com' ? 'admin' : 'customer';
+      
+      const newUserProfile = {
+        id: user.uid,
+        email: user.email,
+        name: customerRegisterName.trim().toUpperCase(),
+        role: role,
+        createdAt: new Date().toISOString(),
+        isVerified: false
+      };
+      
+      await setDoc(doc(db, 'users', user.uid), newUserProfile);
+      
+      setVerificationPendingEmail(customerRegisterEmail.trim());
+      setCustomerRegisterName('');
+      setCustomerRegisterEmail('');
+            setCustomerRegisterPhone('');
+      setCustomerRegisterPassword('');
     } catch (err) {
-      setCustomerAuthError("Network error. Verify operations backend is running.");
+      setCustomerAuthError(err.message || "Registration failed. Please try again.");
     }
   };
 
@@ -1362,106 +1325,41 @@ export default function App() {
       setCustomerAuthError('Please enter both email and password.');
       return;
     }
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: customerLoginEmail.trim(),
-          password: customerLoginPassword
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setCustomerLoginEmail('');
-        setCustomerLoginPassword('');
-        const user = data.user;
-
-        if (user.role === 'admin' || user.email.toLowerCase() === 'libertydispatchers@gmail.com') {
-          setCustomerUser(user);
-          setIsStaffAuthenticated(true);
-          setIsAdminAuthenticated(true);
-          setActiveTab('admin');
-        } else if (user.role === 'driver') {
-          setDriverUser(user);
-          setDriverActiveSubTab('queue');
-          setActiveTab('driver-portal');
-        } else if (user.role === 'vendor') {
-          const matchedVendor = vendors.find(v => v.email?.toLowerCase() === user.email.toLowerCase() || v.name.toLowerCase().includes(user.name.toLowerCase()));
-          if (matchedVendor) {
-            setVendorUser(matchedVendor);
-            setSelectedPortalVendorId(matchedVendor.id);
-          } else {
-            const fallbackVendor = {
-              id: user.associatedId || 'vendor-' + Date.now(),
-              name: user.name,
-              email: user.email,
-              borough: 'Manhattan, NYC',
-              isOpen: true,
-              rating: 5.0,
-              tags: ['Verified', 'Street Food'],
-              items: []
-            };
-            setVendorUser(fallbackVendor);
-            setSelectedPortalVendorId(fallbackVendor.id);
-          }
-          setVendorActiveSubTab('menu');
-          setActiveTab('vendor-portal');
-        } else {
-          setCustomerUser(user);
-          setCustomerActiveSubTab('profile');
-          setActiveTab('account');
-        }
-      } else if (res.status === 403 && data.error === 'unverified') {
-        setVerificationPendingEmail(customerLoginEmail.trim());
-      } else {
-        setCustomerAuthError(data.error || "Login failed.");
+      const { auth, db, doc, getDoc, signInWithEmailAndPassword } = await import('./firebase');
+      
+      const userCredential = await signInWithEmailAndPassword(auth, customerLoginEmail.trim(), customerLoginPassword);
+      const firebaseUser = userCredential.user;
+      
+      const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+      if (!userDoc.exists()) {
+        setCustomerAuthError("User profile not found in database.");
+        return;
       }
-    } catch (err) {
-      // Offline fallback
-      const email = customerLoginEmail.trim();
+      const user = userDoc.data();
+      
       setCustomerLoginEmail('');
       setCustomerLoginPassword('');
 
-      if (email.toLowerCase() === 'libertydispatchers@gmail.com') {
-        const adminUser = {
-          name: 'ADMIN',
-          email: email,
-          phone: '555-0199',
-          joinedDate: '06/15/2026',
-          role: 'admin'
-        };
-        setCustomerUser(adminUser);
+      if (user.role === 'admin' || user.email.toLowerCase() === 'libertydispatchers@gmail.com') {
+        setCustomerUser(user);
         setIsStaffAuthenticated(true);
         setIsAdminAuthenticated(true);
         setActiveTab('admin');
-      } else if (email.toLowerCase().includes('driver') || email.toLowerCase().includes('courier')) {
-        const simulatedDriver = {
-          id: 'driver-sim',
-          email: email,
-          name: 'Simulated Courier',
-          role: 'driver'
-        };
-        setDriverUser(simulatedDriver);
+      } else if (user.role === 'driver') {
+        setDriverUser(user);
         setDriverActiveSubTab('queue');
         setActiveTab('driver-portal');
-      } else if (email.toLowerCase().includes('vendor') || email.toLowerCase().includes('truck')) {
-        const foundVendor = vendors.find(v => 
-          v.email?.toLowerCase() === email.toLowerCase() || 
-          (email.toLowerCase().includes('kings') && v.name.toLowerCase().includes('kings')) ||
-          (email.toLowerCase().includes('taco') && v.name.toLowerCase().includes('taco')) ||
-          (email.toLowerCase().includes('empanada') && v.name.toLowerCase().includes('empanada'))
-        );
-        
-        if (foundVendor) {
-          setVendorUser(foundVendor);
-          setSelectedPortalVendorId(foundVendor.id);
+      } else if (user.role === 'vendor') {
+        const matchedVendor = vendors.find(v => v.email?.toLowerCase() === user.email.toLowerCase() || v.name.toLowerCase().includes(user.name.toLowerCase()));
+        if (matchedVendor) {
+          setVendorUser(matchedVendor);
+          setSelectedPortalVendorId(matchedVendor.id);
         } else {
           const fallbackVendor = {
-            id: 'vendor-' + Date.now(),
-            name: email.split('@')[0].toUpperCase(),
-            email: email,
+            id: user.associatedId || 'vendor-' + Date.now(),
+            name: user.name,
+            email: user.email,
             borough: 'Manhattan, NYC',
             isOpen: true,
             rating: 5.0,
@@ -1474,15 +1372,79 @@ export default function App() {
         setVendorActiveSubTab('menu');
         setActiveTab('vendor-portal');
       } else {
-        setCustomerUser({
-          name: email.split('@')[0].toUpperCase(),
-          email: email,
-          phone: '555-0199',
-          joinedDate: '06/15/2026',
-          role: 'customer'
-        });
+        setCustomerUser(user);
         setCustomerActiveSubTab('profile');
         setActiveTab('account');
+      }
+    } catch (err) {
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        setCustomerAuthError("Invalid credentials.");
+      } else {
+        // Offline fallback
+        const email = customerLoginEmail.trim();
+        setCustomerLoginEmail('');
+        setCustomerLoginPassword('');
+
+        if (email.toLowerCase() === 'libertydispatchers@gmail.com') {
+          const adminUser = {
+            name: 'ADMIN',
+            email: email,
+            phone: '555-0199',
+            joinedDate: '06/15/2026',
+            role: 'admin'
+          };
+          setCustomerUser(adminUser);
+          setIsStaffAuthenticated(true);
+          setIsAdminAuthenticated(true);
+          setActiveTab('admin');
+        } else if (email.toLowerCase().includes('driver') || email.toLowerCase().includes('courier')) {
+          const simulatedDriver = {
+            id: 'driver-sim',
+            email: email,
+            name: 'Simulated Courier',
+            role: 'driver'
+          };
+          setDriverUser(simulatedDriver);
+          setDriverActiveSubTab('queue');
+          setActiveTab('driver-portal');
+        } else if (email.toLowerCase().includes('vendor') || email.toLowerCase().includes('truck')) {
+          const foundVendor = vendors.find(v => 
+            v.email?.toLowerCase() === email.toLowerCase() || 
+            (email.toLowerCase().includes('kings') && v.name.toLowerCase().includes('kings')) ||
+            (email.toLowerCase().includes('taco') && v.name.toLowerCase().includes('taco')) ||
+            (email.toLowerCase().includes('empanada') && v.name.toLowerCase().includes('empanada'))
+          );
+          
+          if (foundVendor) {
+            setVendorUser(foundVendor);
+            setSelectedPortalVendorId(foundVendor.id);
+          } else {
+            const fallbackVendor = {
+              id: 'vendor-' + Date.now(),
+              name: email.split('@')[0].toUpperCase(),
+              email: email,
+              borough: 'Manhattan, NYC',
+              isOpen: true,
+              rating: 5.0,
+              tags: ['Verified', 'Street Food'],
+              items: []
+            };
+            setVendorUser(fallbackVendor);
+            setSelectedPortalVendorId(fallbackVendor.id);
+          }
+          setVendorActiveSubTab('menu');
+          setActiveTab('vendor-portal');
+        } else {
+          setCustomerUser({
+            name: email.split('@')[0].toUpperCase(),
+            email: email,
+            phone: '555-0199',
+            joinedDate: '06/15/2026',
+            role: 'customer'
+          });
+          setCustomerActiveSubTab('profile');
+          setActiveTab('account');
+        }
       }
     }
   };
@@ -6369,7 +6331,7 @@ export default function App() {
           <Activity className="w-3.5 h-3.5 text-white" /> System Operating
         </div>
       </footer>
-
+      <div id="recaptcha-container"></div>
     </div>
   );
 }

@@ -1,14 +1,13 @@
 import { initializeApp } from 'firebase/app';
 import * as firestore from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
-import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, RecaptchaVerifier, signInWithPhoneNumber } from 'firebase/auth';
 
 // ----------------------------------------------------
 // LOCAL WORKSPACE TESTING CONFIG
-// Set to true to bypass Java-dependent Firebase emulators.
 // Set to false to use the official Cloud Firebase connection.
 // ----------------------------------------------------
-const USE_LOCAL_MOCK = true;
+const USE_LOCAL_MOCK = false;
 
 const firebaseConfig = {
   apiKey: "AIzaSyA1rtHWGNu59FoiFLccRFM08y9lz6-6WRE",
@@ -20,11 +19,10 @@ const firebaseConfig = {
 };
 
 // 1. Initialize Real SDK
-// We always initialize the app for Auth, even if we mock the DB
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
-export { signInWithPopup };
+export { signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, RecaptchaVerifier, signInWithPhoneNumber };
 
 let dbSdk = null;
 let functionsSdk = null;
@@ -159,4 +157,14 @@ export const where = (field, op, value) => {
 export const orderBy = (field, dir) => {
   if (USE_LOCAL_MOCK) return orderByMock(field, dir);
   return firestore.orderBy(field, dir);
+};
+
+export const setDoc = (docRef, data) => {
+  if (USE_LOCAL_MOCK) return Promise.resolve(); // Not mock-implemented yet
+  return firestore.setDoc(docRef, data);
+};
+
+export const getDoc = (docRef) => {
+  if (USE_LOCAL_MOCK) return Promise.resolve({ exists: () => false, data: () => ({}) });
+  return firestore.getDoc(docRef);
 };

@@ -9,3 +9,4 @@ frontend/dist/
 frontend/node_modules/
 functions/node_modules/
 .vercel
+service-account.json
