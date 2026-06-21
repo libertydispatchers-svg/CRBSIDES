@@ -832,7 +832,41 @@ app.post("/api/shopify/create-product", async (req, res) => {
     );
 
     console.log(`[Shopify API] Product created successfully. ID: ${response.data.product.id}`);
-    res.status(201).json({ success: true, product: response.data.product });
+    
+    let collectionData = null;
+    try {
+      console.log(`[Shopify API] Creating Smart Collection for vendor "${vendorName}"...`);
+      const collectionPayload = {
+        smart_collection: {
+          title: vendorName,
+          rules: [
+            {
+              column: "vendor",
+              relation: "equals",
+              condition: vendorName
+            }
+          ]
+        }
+      };
+
+      const collectionRes = await axios.post(
+        `https://${sanitizedShop}/admin/api/2024-01/smart_collections.json`,
+        collectionPayload,
+        {
+          headers: {
+            "X-Shopify-Access-Token": admin_token,
+            "Content-Type": "application/json"
+          }
+        }
+      );
+      
+      console.log(`[Shopify API] Smart Collection created successfully. ID: ${collectionRes.data.smart_collection.id}`);
+      collectionData = collectionRes.data.smart_collection;
+    } catch (colErr) {
+      console.warn("[Shopify API] Smart Collection creation failed (may already exist):", colErr.response?.data || colErr.message);
+    }
+
+    res.status(201).json({ success: true, product: response.data.product, collection: collectionData });
   } catch (err) {
     console.error("[Shopify API] Product creation failed:", err.response?.data || err.message);
     res.status(500).json({ error: "Failed to create product in Shopify", details: err.response?.data || err.message });
