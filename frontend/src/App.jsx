@@ -616,27 +616,31 @@ export default function App() {
       }
 
       if (user) {
-        let userDoc = await getDoc(doc(db, 'users', user.uid));
-        
-        let finalRole = role;
-        if (user.email && user.email.toLowerCase() === 'libertydispatchers@gmail.com') {
-          finalRole = 'admin';
-        }
-        
-        if (!userDoc.exists()) {
-          const newUserProfile = {
-            id: user.uid,
-            email: user.email || user.phoneNumber || '',
-            name: user.displayName || (user.email ? user.email.split('@')[0].toUpperCase() : 'PHONE USER'),
-            role: finalRole,
-            createdAt: new Date().toISOString(),
-            isVerified: true
-          };
-          await setDoc(doc(db, 'users', user.uid), newUserProfile);
-          userDoc = await getDoc(doc(db, 'users', user.uid));
+        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+        const payload = {
+          uid: user.uid,
+          email: user.email || user.phoneNumber || 'no-email@example.com',
+          name: user.displayName || (user.email ? user.email.split('@')[0].toUpperCase() : 'PHONE USER'),
+          role: role
+        };
+
+        const response = await fetch(`${BACKEND_URL}/api/auth/google`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          const errData = await response.json();
+          throw new Error(errData.message || errData.error || 'Failed to sync SSO account with backend');
         }
 
-        const dataUser = userDoc.data();
+        const dataUserResponse = await response.json();
+        const dataUser = dataUserResponse.user;
+
+        if (!dataUser) {
+          throw new Error("Invalid response from server during SSO.");
+        }
         
         if (dataUser.role === 'admin') {
           setCustomerUser(dataUser);
@@ -644,10 +648,6 @@ export default function App() {
           setIsAdminAuthenticated(true);
           setActiveTab('admin');
         } else if (dataUser.role === 'driver') {
-          if (dataUser.status !== 'approved') {
-            alert("Your driver account is pending approval.");
-            return;
-          }
           setDriverUser(dataUser);
           setDriverActiveSubTab('deliveries');
           setActiveTab('driver-portal');
@@ -832,7 +832,7 @@ export default function App() {
   };
 
   // Handle Vendor Onboarding Form
-  const handleVendorOnboard = (e) => {
+  const handleVendorOnboard = async (e) => {
     e.preventDefault();
     setVendorOnboardError('');
     setVendorOnboardSuccess(false);
@@ -2148,32 +2148,11 @@ export default function App() {
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                           Google
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Apple')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
-                          Apple
-                        </button>
+                        
                       </div>
                       <div className="grid grid-cols-2 gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Outlook')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <Mail className="w-3.5 h-3.5" />
-                          Outlook
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Phone')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                          SMS/Phone
-                        </button>
+                        
+                        
                       </div>
                     </div>
 
@@ -2262,32 +2241,11 @@ export default function App() {
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                           Google
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Apple')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
-                          Apple
-                        </button>
+                        
                       </div>
                       <div className="grid grid-cols-2 gap-2.5">
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Outlook')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <Mail className="w-3.5 h-3.5" />
-                          Outlook
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Phone')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                          SMS/Phone
-                        </button>
+                        
+                        
                       </div>
                     </div>
                   </div>
@@ -3053,32 +3011,11 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Apple', 'vendor')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
-                        Apple
-                      </button>
+                      
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Outlook', 'vendor')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                        Outlook
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Phone', 'vendor')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                        SMS/Phone
-                      </button>
+                      
+                      
                     </div>
                   </div>
 
@@ -3192,32 +3129,11 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Apple', 'vendor')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
-                        Apple
-                      </button>
+                      
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Outlook', 'vendor')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                        Outlook
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Phone', 'vendor')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                        SMS/Phone
-                      </button>
+                      
+                      
                     </div>
                   </div>
                   </>
@@ -4016,32 +3932,11 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Apple', 'driver')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
-                        Apple
-                      </button>
+                      
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Outlook', 'driver')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                        Outlook
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Phone', 'driver')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                        SMS/Phone
-                      </button>
+                      
+                      
                     </div>
                   </div>
                   </>
@@ -4144,32 +4039,11 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Apple', 'driver')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M17.05 20.28c-.98.95-2.05 1.88-3.08 1.88-1.02 0-1.4-.62-2.56-.62-1.18 0-1.58.6-2.56.63-1 .04-2.12-.96-3.14-1.92-2.1-1.97-3.7-5.56-3.7-8.98 0-5.43 3.52-8.3 6.98-8.3 1.1 0 2.1.68 2.77.68.67 0 1.9-.8 3.2-.67 1.36.05 2.45.66 3.1 1.6-2.65 1.56-2.2 5.08.43 6.13-1.08 2.62-2.52 5.25-4.22 7.55zM12 .3c1.55-.17 3.12-1.3 3.12-2.8 0-.17 0-.35-.04-.52-1.5.06-2.93 1-3.4 2.2-.42.86-.33 1.87.32 2.6.43.34.8.52 1 .52z"/></svg>
-                        Apple
-                      </button>
+                      
                     </div>
                     <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Outlook', 'driver')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <Mail className="w-3.5 h-3.5" />
-                        Outlook
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Phone', 'driver')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <Phone className="w-3.5 h-3.5" />
-                        SMS/Phone
-                      </button>
+                      
+                      
                     </div>
                   </div>
                   </>
