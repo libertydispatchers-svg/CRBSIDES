@@ -847,28 +847,19 @@ export default function App() {
       email: vendorEmail.trim(),
       phone: vendorPhone.trim(),
       foodType: vendorFoodType.trim(),
-      borough: vendorBorough
+      borough: vendorBorough,
+      status: 'pending',
+      createdAt: new Date().toISOString()
     };
 
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-    fetch(`${BACKEND_URL}/api/vendor-applications`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newApp)
-    })
-    .then(res => {
-      if (!res.ok) throw new Error();
-      return res.json();
-    })
-    .then(savedApp => {
-      setVendorApplications(prev => [...prev, savedApp]);
+    try {
+      const { db, collection, addDoc } = await import('./firebase');
+      await addDoc(collection(db, 'vendor-applications'), newApp);
       setVendorOnboardSuccess(true);
-    })
-    .catch(() => {
-      // Fallback to local state if server is not accessible
-      setVendorApplications(prev => [...prev, { ...newApp, id: 'v-app-' + Date.now(), status: 'pending' }]);
-      setVendorOnboardSuccess(true);
-    });
+    } catch (err) {
+      console.error("Failed to submit vendor application:", err);
+      setVendorOnboardError("Failed to submit application. Please try again.");
+    }
 
     // Clear form fields
     setVendorName('');
@@ -877,7 +868,7 @@ export default function App() {
     setVendorFoodType('');
   };
 
-  const handleDriverOnboard = (e) => {
+  const handleDriverOnboard = async (e) => {
     e.preventDefault();
     setDriverOnboardError('');
     setDriverOnboardSuccess(false);
@@ -909,13 +900,11 @@ export default function App() {
       return res.json();
     })
     .then(savedDriver => {
-      setDrivers(prev => [...prev, savedDriver]);
+      // It's already sent to Firestore by the backend, our onSnapshot listener will pick it up
       setDriverOnboardSuccess(true);
     })
     .catch(() => {
-      // Fallback to local state if server is not accessible
-      setDrivers(prev => [...prev, { ...newDriver, id: 'd-' + Date.now() }]);
-      setDriverOnboardSuccess(true);
+      setDriverOnboardError("Failed to submit driver application. Please try again.");
     });
 
     // Clear form fields
@@ -934,14 +923,18 @@ export default function App() {
     }
   };
 
-  // Handle Vendor Approval and Sync to Shopify Product Catalog
   const handleApproveVendor = async (app) => {
-    try {
-      const { db, doc, updateDoc, setDoc } = await import('./firebase');
-      // Persist approval to database
-      await updateDoc(doc(db, 'vendor-applications', app.id), { status: 'approved' });
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
 
-      // Automatically add to local vendors list to make it active in search directories
+    // Persist approval to database via Node Server to trigger Welcome Email
+    try {
+      await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' })
+      });
+
+      // Automatically add to local vendors list (which creates the vendor doc)
       const newVendorId = 'vendor-' + Date.now();
       const newVendor = {
         id: newVendorId,
@@ -954,9 +947,9 @@ export default function App() {
         items: []
       };
       
-      // Also write this new vendor to the 'vendors' collection
+      const { db, doc, setDoc } = await import('./firebase');
       await setDoc(doc(db, 'vendors', newVendorId), newVendor);
-      
+
     } catch (err) {
       console.error("Failed to persist vendor application approval or vendor creation:", err);
     }
