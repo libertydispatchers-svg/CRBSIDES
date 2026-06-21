@@ -1318,13 +1318,45 @@ export default function App() {
       });
       const data = await res.json();
       if (res.ok) {
-        if (data.user.role !== 'customer') {
-          setCustomerAuthError("Access denied. Please use the appropriate sign-in portal for your role.");
-          return;
-        }
-        setCustomerUser(data.user);
         setCustomerLoginEmail('');
         setCustomerLoginPassword('');
+        const user = data.user;
+
+        if (user.role === 'admin' || user.email.toLowerCase() === 'libertydispatchers@gmail.com') {
+          setCustomerUser(user);
+          setIsStaffAuthenticated(true);
+          setIsAdminAuthenticated(true);
+          setActiveTab('admin');
+        } else if (user.role === 'driver') {
+          setDriverUser(user);
+          setDriverActiveSubTab('queue');
+          setActiveTab('driver-portal');
+        } else if (user.role === 'vendor') {
+          const matchedVendor = vendors.find(v => v.email?.toLowerCase() === user.email.toLowerCase() || v.name.toLowerCase().includes(user.name.toLowerCase()));
+          if (matchedVendor) {
+            setVendorUser(matchedVendor);
+            setSelectedPortalVendorId(matchedVendor.id);
+          } else {
+            const fallbackVendor = {
+              id: user.associatedId || 'vendor-' + Date.now(),
+              name: user.name,
+              email: user.email,
+              borough: 'Manhattan, NYC',
+              isOpen: true,
+              rating: 5.0,
+              tags: ['Verified', 'Street Food'],
+              items: []
+            };
+            setVendorUser(fallbackVendor);
+            setSelectedPortalVendorId(fallbackVendor.id);
+          }
+          setVendorActiveSubTab('menu');
+          setActiveTab('vendor-portal');
+        } else {
+          setCustomerUser(user);
+          setCustomerActiveSubTab('profile');
+          setActiveTab('account');
+        }
       } else if (res.status === 403 && data.error === 'unverified') {
         setVerificationPendingEmail(customerLoginEmail.trim());
       } else {
@@ -1332,14 +1364,70 @@ export default function App() {
       }
     } catch (err) {
       // Offline fallback
-      setCustomerUser({
-        name: customerLoginEmail.split('@')[0].toUpperCase(),
-        email: customerLoginEmail.trim(),
-        phone: '555-0199',
-        joinedDate: '06/15/2026'
-      });
+      const email = customerLoginEmail.trim();
       setCustomerLoginEmail('');
       setCustomerLoginPassword('');
+
+      if (email.toLowerCase() === 'libertydispatchers@gmail.com') {
+        const adminUser = {
+          name: 'ADMIN',
+          email: email,
+          phone: '555-0199',
+          joinedDate: '06/15/2026',
+          role: 'admin'
+        };
+        setCustomerUser(adminUser);
+        setIsStaffAuthenticated(true);
+        setIsAdminAuthenticated(true);
+        setActiveTab('admin');
+      } else if (email.toLowerCase().includes('driver') || email.toLowerCase().includes('courier')) {
+        const simulatedDriver = {
+          id: 'driver-sim',
+          email: email,
+          name: 'Simulated Courier',
+          role: 'driver'
+        };
+        setDriverUser(simulatedDriver);
+        setDriverActiveSubTab('queue');
+        setActiveTab('driver-portal');
+      } else if (email.toLowerCase().includes('vendor') || email.toLowerCase().includes('truck')) {
+        const foundVendor = vendors.find(v => 
+          v.email?.toLowerCase() === email.toLowerCase() || 
+          (email.toLowerCase().includes('kings') && v.name.toLowerCase().includes('kings')) ||
+          (email.toLowerCase().includes('taco') && v.name.toLowerCase().includes('taco')) ||
+          (email.toLowerCase().includes('empanada') && v.name.toLowerCase().includes('empanada'))
+        );
+        
+        if (foundVendor) {
+          setVendorUser(foundVendor);
+          setSelectedPortalVendorId(foundVendor.id);
+        } else {
+          const fallbackVendor = {
+            id: 'vendor-' + Date.now(),
+            name: email.split('@')[0].toUpperCase(),
+            email: email,
+            borough: 'Manhattan, NYC',
+            isOpen: true,
+            rating: 5.0,
+            tags: ['Verified', 'Street Food'],
+            items: []
+          };
+          setVendorUser(fallbackVendor);
+          setSelectedPortalVendorId(fallbackVendor.id);
+        }
+        setVendorActiveSubTab('menu');
+        setActiveTab('vendor-portal');
+      } else {
+        setCustomerUser({
+          name: email.split('@')[0].toUpperCase(),
+          email: email,
+          phone: '555-0199',
+          joinedDate: '06/15/2026',
+          role: 'customer'
+        });
+        setCustomerActiveSubTab('profile');
+        setActiveTab('account');
+      }
     }
   };
 
@@ -1862,7 +1950,7 @@ export default function App() {
           )}
 
           {/* 3. CUSTOMER SESSION HEADER VIEW */}
-          {customerUser && !vendorUser && !driverUser && (
+          {customerUser && !vendorUser && !driverUser && customerUser.email.toLowerCase() !== 'libertydispatchers@gmail.com' && (
             <div className="flex items-center gap-2 sm:gap-3">
               <span className="text-[10px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 px-2.5 py-1 rounded font-bold uppercase font-heading">
                 User: {customerUser.name}
@@ -1874,14 +1962,6 @@ export default function App() {
                 }`}
               >
                 My Account
-              </button>
-              <button
-                onClick={() => setActiveTab(activeTab === 'track' ? 'directory' : 'track')}
-                className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
-                  activeTab === 'track' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                }`}
-              >
-                Track Order
               </button>
               <button
                 onClick={() => setIsCartOpen(true)}
@@ -1908,7 +1988,7 @@ export default function App() {
           )}
 
           {/* 4. ADMIN SESSION HEADER VIEW */}
-          {isStaffAuthenticated && !vendorUser && !driverUser && !customerUser && (
+          {((isStaffAuthenticated && !customerUser) || (customerUser && customerUser.email.toLowerCase() === 'libertydispatchers@gmail.com')) && !vendorUser && !driverUser && (
             <div className="flex items-center gap-2">
               <span className="text-[10px] bg-white/10 text-white border border-white/20 px-2.5 py-1 rounded font-bold uppercase font-heading">
                 Admin Console
@@ -1942,43 +2022,11 @@ export default function App() {
             <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
               <button
                 onClick={() => setActiveTab('account')}
-                className={`px-2 py-1.5 border border-white rounded text-[10px] font-bold uppercase transition-all cursor-pointer font-heading ${
+                className={`px-2.5 py-1.5 border border-white rounded text-[10px] font-bold uppercase transition-all cursor-pointer font-heading ${
                   activeTab === 'account' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                 }`}
               >
-                Customer Sign In
-              </button>
-              <button
-                onClick={() => setActiveTab('track')}
-                className={`px-2 py-1.5 border border-white rounded text-[10px] font-bold uppercase transition-all cursor-pointer font-heading ${
-                  activeTab === 'track' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                }`}
-              >
-                Track Order
-              </button>
-              <button
-                onClick={() => setActiveTab('vendor-portal')}
-                className={`px-2 py-1.5 border border-amber-500 rounded text-[10px] font-bold uppercase bg-black text-amber-500 hover:bg-amber-500 hover:text-black transition-all cursor-pointer font-heading ${
-                  activeTab === 'vendor-portal' ? 'bg-amber-500 text-black border-amber-500' : ''
-                }`}
-              >
-                Vendor Portal
-              </button>
-              <button
-                onClick={() => setActiveTab('driver-portal')}
-                className={`px-2 py-1.5 border border-rose-500 rounded text-[10px] font-bold uppercase bg-black text-rose-500 hover:bg-rose-500 hover:text-black transition-all cursor-pointer font-heading ${
-                  activeTab === 'driver-portal' ? 'bg-rose-500 text-black border-rose-500' : ''
-                }`}
-              >
-                Driver Portal
-              </button>
-              <button
-                onClick={() => setActiveTab('admin')}
-                className={`px-2 py-1.5 border border-white rounded text-[10px] font-bold uppercase transition-all cursor-pointer font-heading ${
-                  activeTab === 'admin' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                }`}
-              >
-                Admin Command
+                Sign In
               </button>
               <button
                 onClick={() => setIsCartOpen(true)}
@@ -1999,144 +2047,6 @@ export default function App() {
       {/* Main Grid: Mobile Tabs or Dual Column Desktop Grid */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
         
-        {/* Customer Tracking Page */}
-        {activeTab === 'track' && (
-          <div className="lg:col-span-12 p-6 flex flex-col justify-center items-center max-w-lg mx-auto w-full space-y-6">
-            <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-6">
-              <div className="text-center">
-                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
-                  Branded Tracker
-                </span>
-                <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Live Order Tracking</h2>
-                <p className="text-xs text-slate-400 mt-1">Enter your order ID below to verify your shipment status.</p>
-              </div>
-
-              <form onSubmit={handleSearchOrder} className="space-y-4">
-                {trackingError && (
-                  <div className="border border-white/20 p-3 rounded-lg text-xs text-rose-400 bg-rose-950/20 font-bold uppercase">
-                    {trackingError}
-                  </div>
-                )}
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Enter Order ID (e.g. shopify-1001, 123456789)"
-                    value={trackingOrderId}
-                    onChange={(e) => setTrackingOrderId(e.target.value)}
-                    className="w-full px-4 py-3 rounded-xl omny-input text-sm text-white"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full py-3 border-2 border-white rounded-xl bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                >
-                  Lookup Fare Status
-                </button>
-              </form>
-            </div>
-
-            {searchedOrder && (
-              <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-5 animate-fade-in text-white font-sans">
-                <div className="flex justify-between items-center border-b border-white/20 pb-4">
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-bold uppercase">Order ID</span>
-                    <span className="font-mono text-sm text-white font-bold">{searchedOrder.id}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-slate-400 block font-bold uppercase">Vendor</span>
-                    <span className="text-xs text-white font-bold uppercase">{searchedOrder.vendor}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="flex justify-between text-xs font-bold uppercase">
-                    <span>Delivery Status</span>
-                    <span className="text-emerald-400">{searchedOrder.status}</span>
-                  </div>
-                  <div className="h-2 bg-slate-900 border border-white/20 rounded-full overflow-hidden flex">
-                    <span 
-                      className="h-full bg-white transition-all duration-500" 
-                      style={{ 
-                        width: searchedOrder.status === 'Delivered' ? '100%' : 
-                               searchedOrder.status === 'On the Way' ? '80%' : 
-                               searchedOrder.status === 'Driver Assigned' ? '60%' : 
-                               searchedOrder.status === 'Vendor Preparing Food' ? '40%' : '20%' 
-                      }}
-                    ></span>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4 text-xs">
-                  <div className="border border-white/10 p-3 rounded-xl bg-zinc-950/40">
-                    <span className="text-slate-400 block mb-1">Estimated Arrival</span>
-                    <span className="text-white font-bold">{searchedOrder.eta} Minutes</span>
-                  </div>
-                  <div className="border border-white/10 p-3 rounded-xl bg-zinc-950/40">
-                    <span className="text-slate-400 block mb-1">Courier</span>
-                    <span className="text-white font-bold truncate block">{searchedOrder.driverName}</span>
-                  </div>
-                </div>
-
-                {/* Pickup and Delivery Address Card */}
-                {(searchedOrder.vendorAddress || searchedOrder.customerAddress) && (
-                  <div className="border border-white/15 p-4 rounded-xl bg-zinc-950/20 text-xs space-y-3">
-                    {searchedOrder.vendorAddress && (
-                      <div className="flex gap-2">
-                        <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
-                        <div>
-                          <span className="text-slate-500 font-bold uppercase text-[9px] block">Pickup Location</span>
-                          <span className="text-white font-semibold">{searchedOrder.vendorAddress}</span>
-                        </div>
-                      </div>
-                    )}
-                    {searchedOrder.vendorAddress && searchedOrder.customerAddress && (
-                      <div className="border-t border-white/10 my-2"></div>
-                    )}
-                    {searchedOrder.customerAddress && (
-                      <div className="flex gap-2">
-                        <Navigation className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                        <div>
-                          <span className="text-slate-500 font-bold uppercase text-[9px] block">Destination</span>
-                          <span className="text-white font-semibold">{searchedOrder.customerAddress}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Shipday Live GPS Map Tracker */}
-                {searchedOrder.trackingLink && (
-                  <a 
-                    href={searchedOrder.trackingLink} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="flex items-center justify-center gap-2 w-full py-3 bg-white text-black font-extrabold text-xs uppercase rounded-xl border border-white hover:bg-black hover:text-white transition-all text-center tracking-wider font-heading cursor-pointer"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open Live GPS Tracking Map
-                  </a>
-                )}
-
-                {/* Call Courier Option */}
-                {searchedOrder.driverPhone && (
-                  <a 
-                    href={`tel:${searchedOrder.driverPhone}`} 
-                    className="flex items-center justify-center gap-2 w-full py-2.5 bg-transparent text-white font-extrabold text-xs uppercase rounded-xl border border-white/20 hover:border-white transition-all text-center tracking-wider font-heading cursor-pointer"
-                  >
-                    <Phone className="w-3.5 h-3.5" />
-                    Contact Courier ({searchedOrder.driverPhone})
-                  </a>
-                )}
-
-                <div className="flex items-center justify-center gap-1.5 text-[9px] bg-white/5 border border-white/10 px-2 py-1.5 rounded-xl text-slate-400 uppercase tracking-widest font-heading">
-                  <Activity className="w-3.5 h-3.5 text-white animate-pulse" />
-                  Secured via Shipday Dispatch API
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Customer Account Hub: Profile, Cards, Chat, Order tracking */}
         {activeTab === 'account' && (
           <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
@@ -2388,21 +2298,6 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Footer Section for Partners */}
-                <div className="pt-4 border-t border-white/10 flex justify-between text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                  <button 
-                    onClick={() => setActiveTab('vendor-onboard')}
-                    className="hover:text-white transition-colors cursor-pointer bg-transparent border-0 underline"
-                  >
-                    Vendor Sign Up
-                  </button>
-                  <button 
-                    onClick={() => setActiveTab('driver-onboard')}
-                    className="hover:text-white transition-colors cursor-pointer bg-transparent border-0 underline"
-                  >
-                    Driver Application
-                  </button>
-                </div>
               </div>
             ) : (
               <div className="border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
@@ -2437,6 +2332,22 @@ export default function App() {
                       }`}
                     >
                       Order History
+                    </button>
+                    <button
+                      onClick={() => setCustomerActiveSubTab('track')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        customerActiveSubTab === 'track' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Track Order
+                    </button>
+                    <button
+                      onClick={() => setCustomerActiveSubTab('partner')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        customerActiveSubTab === 'partner' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Become a Partner
                     </button>
                     <button
                       onClick={() => setCustomerActiveSubTab('chat')}
@@ -2629,7 +2540,7 @@ export default function App() {
                                 <button
                                   onClick={() => {
                                     setTrackingOrderId('shopify-1001');
-                                    setActiveTab('track');
+                                    setCustomerActiveSubTab('track');
                                     handleSearchOrder(null, 'shopify-1001');
                                   }}
                                   className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
@@ -2649,7 +2560,7 @@ export default function App() {
                                 <button
                                   onClick={() => {
                                     setTrackingOrderId('shopify-1002');
-                                    setActiveTab('track');
+                                    setCustomerActiveSubTab('track');
                                     handleSearchOrder(null, 'shopify-1002');
                                   }}
                                   className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
@@ -2716,498 +2627,341 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Subtab: Track Order */}
+                {customerActiveSubTab === 'track' && (
+                  <div className="space-y-6">
+                    <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-6">
+                      <div className="text-center">
+                        <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                          Branded Tracker
+                        </span>
+                        <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Live Order Tracking</h2>
+                        <p className="text-xs text-slate-400 mt-1">Enter your order ID below to verify your shipment status.</p>
+                      </div>
+
+                      <form onSubmit={handleSearchOrder} className="space-y-4">
+                        {trackingError && (
+                          <div className="border border-white/20 p-3 rounded-lg text-xs text-rose-400 bg-rose-950/20 font-bold uppercase">
+                            {trackingError}
+                          </div>
+                        )}
+                        <div>
+                          <input
+                            type="text"
+                            placeholder="Enter Order ID (e.g. shopify-1001, 123456789)"
+                            value={trackingOrderId}
+                            onChange={(e) => setTrackingOrderId(e.target.value)}
+                            className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                          />
+                        </div>
+                        <button
+                          type="submit"
+                          className="w-full py-3 border-2 border-white rounded-xl bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                        >
+                          Lookup Fare Status
+                        </button>
+                      </form>
+                    </div>
+
+                    {searchedOrder && (
+                      <div className="border-2 border-white rounded-2xl p-6 bg-black w-full shadow-2xl space-y-5 animate-fade-in text-white font-sans">
+                        <div className="flex justify-between items-center border-b border-white/20 pb-4">
+                          <div>
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Order ID</span>
+                            <span className="font-mono text-sm text-white font-bold">{searchedOrder.id}</span>
+                          </div>
+                          <div className="text-right">
+                            <span className="text-[10px] text-slate-400 block font-bold uppercase">Vendor</span>
+                            <span className="text-xs text-white font-bold uppercase">{searchedOrder.vendor}</span>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-xs font-bold uppercase">
+                            <span>Delivery Status</span>
+                            <span className="text-emerald-400">{searchedOrder.status}</span>
+                          </div>
+                          <div className="h-2 bg-slate-900 border border-white/20 rounded-full overflow-hidden flex">
+                            <span 
+                              className="h-full bg-white transition-all duration-500" 
+                              style={{ 
+                                width: searchedOrder.status === 'Delivered' ? '100%' : 
+                                       searchedOrder.status === 'On the Way' ? '80%' : 
+                                       searchedOrder.status === 'Driver Assigned' ? '60%' : 
+                                       searchedOrder.status === 'Vendor Preparing Food' ? '40%' : '20%' 
+                              }}
+                            ></span>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 text-xs">
+                          <div className="border border-white/10 p-3 rounded-xl bg-zinc-950/40">
+                            <span className="text-slate-400 block mb-1">Estimated Arrival</span>
+                            <span className="text-white font-bold">{searchedOrder.eta} Minutes</span>
+                          </div>
+                          <div className="border border-white/10 p-3 rounded-xl bg-zinc-950/40">
+                            <span className="text-slate-400 block mb-1">Courier</span>
+                            <span className="text-white font-bold truncate block">{searchedOrder.driverName}</span>
+                          </div>
+                        </div>
+
+                        {/* Pickup and Delivery Address Card */}
+                        {(searchedOrder.vendorAddress || searchedOrder.customerAddress) && (
+                          <div className="border border-white/15 p-4 rounded-xl bg-zinc-950/20 text-xs space-y-3">
+                            {searchedOrder.vendorAddress && (
+                              <div className="flex gap-2">
+                                <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="text-slate-500 font-bold uppercase text-[9px] block">Pickup Location</span>
+                                  <span className="text-white font-semibold">{searchedOrder.vendorAddress}</span>
+                                </div>
+                              </div>
+                            )}
+                            {searchedOrder.vendorAddress && searchedOrder.customerAddress && (
+                              <div className="border-t border-white/10 my-2"></div>
+                            )}
+                            {searchedOrder.customerAddress && (
+                              <div className="flex gap-2">
+                                <Navigation className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                                <div>
+                                  <span className="text-slate-500 font-bold uppercase text-[9px] block">Destination</span>
+                                  <span className="text-white font-semibold">{searchedOrder.customerAddress}</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Shipday Live GPS Map Tracker */}
+                        {searchedOrder.trackingLink && (
+                          <a 
+                            href={searchedOrder.trackingLink} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="flex items-center justify-center gap-2 w-full py-3 bg-white text-black font-extrabold text-xs uppercase rounded-xl border border-white hover:bg-black hover:text-white transition-all text-center tracking-wider font-heading cursor-pointer"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            Open Live GPS Tracking Map
+                          </a>
+                        )}
+
+                        {/* Call Courier Option */}
+                        {searchedOrder.driverPhone && (
+                          <a 
+                            href={`tel:${searchedOrder.driverPhone}`} 
+                            className="flex items-center justify-center gap-2 w-full py-2.5 bg-transparent text-white font-extrabold text-xs uppercase rounded-xl border border-white/20 hover:border-white transition-all text-center tracking-wider font-heading cursor-pointer"
+                          >
+                            <Phone className="w-3.5 h-3.5" />
+                            Contact Courier ({searchedOrder.driverPhone})
+                          </a>
+                        )}
+
+                        <div className="flex items-center justify-center gap-1.5 text-[9px] bg-white/5 border border-white/10 px-2 py-1.5 rounded-xl text-slate-400 uppercase tracking-widest font-heading">
+                          <Activity className="w-3.5 h-3.5 text-white animate-pulse" />
+                          Secured via Shipday Dispatch API
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Subtab: Become a Partner */}
+                {customerActiveSubTab === 'partner' && (
+                  <div className="space-y-6">
+                    <div className="text-center mb-6">
+                      <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                        Partner Desk
+                      </span>
+                      <h3 className="text-xl font-bold uppercase text-white font-heading mt-3">Apply as a Fleet Partner</h3>
+                      <p className="text-xs text-slate-400 mt-1">Select an application form below to register your food truck or courier profile.</p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      {/* Driver Onboarding Form */}
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                          <Truck className="w-5 h-5 text-rose-400" />
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-white">Apply as Driver / Courier</h3>
+                        </div>
+                        {driverOnboardSuccess ? (
+                          <div className="border border-emerald-500/20 bg-emerald-950/10 p-4 rounded-xl text-center text-xs text-emerald-400 font-bold uppercase tracking-wider">
+                            Courier Application Submitted! Status: Pending Approval.
+                          </div>
+                        ) : (
+                          <form onSubmit={handleDriverOnboard} className="space-y-3.5">
+                            {driverOnboardError && (
+                              <div className="p-2.5 border border-red-500 bg-red-950/20 text-red-500 text-[10px] font-bold uppercase rounded text-center">
+                                {driverOnboardError}
+                              </div>
+                            )}
+                            <div>
+                              <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Full Name</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="Carlos Rivera"
+                                value={driverNameInput}
+                                onChange={(e) => setDriverNameInput(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Business Email</label>
+                              <input
+                                type="email"
+                                required
+                                placeholder="carlos@example.com"
+                                value={driverEmailInput}
+                                onChange={(e) => setDriverEmailInput(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Phone Number</label>
+                              <input
+                                type="tel"
+                                required
+                                placeholder="(555) 000-0000"
+                                value={driverPhoneInput}
+                                onChange={(e) => setDriverPhoneInput(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Vehicle Type</label>
+                                <select
+                                  value={driverVehicle}
+                                  onChange={(e) => setDriverVehicle(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none appearance-none cursor-pointer"
+                                >
+                                  <option value="bike">E-Bike / Bicycle</option>
+                                  <option value="scooter">Scooter</option>
+                                  <option value="car">Car / Sedan</option>
+                                  <option value="van">Cargo Van</option>
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Borough</label>
+                                <select
+                                  value={driverBoroughsInput[0] || 'Manhattan'}
+                                  onChange={(e) => setDriverBoroughsInput([e.target.value])}
+                                  className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none appearance-none cursor-pointer"
+                                >
+                                  <option value="Manhattan">Manhattan</option>
+                                  <option value="Brooklyn">Brooklyn</option>
+                                  <option value="Queens">Queens</option>
+                                  <option value="Bronx">Bronx</option>
+                                  <option value="Staten Island">Staten Island</option>
+                                </select>
+                              </div>
+                            </div>
+                            <button
+                              type="submit"
+                              className="w-full py-2 border border-white rounded bg-white text-black font-bold text-[10px] uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                            >
+                              Submit Courier Application
+                            </button>
+                          </form>
+                        )}
+                      </div>
+
+                      {/* Vendor Onboarding Form */}
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="flex items-center gap-2 border-b border-white/10 pb-3">
+                          <Store className="w-5 h-5 text-amber-400" />
+                          <h3 className="text-sm font-bold uppercase tracking-wider text-white">Register Food Truck / Vendor</h3>
+                        </div>
+                        {vendorOnboardSuccess ? (
+                          <div className="border border-emerald-500/20 bg-emerald-950/10 p-4 rounded-xl text-center text-xs text-emerald-400 font-bold uppercase tracking-wider">
+                            Vendor Onboarding Filed! Status: Pending Approval.
+                          </div>
+                        ) : (
+                          <form onSubmit={handleVendorOnboard} className="space-y-3.5">
+                            {vendorOnboardError && (
+                              <div className="p-2.5 border border-red-500 bg-red-950/20 text-red-500 text-[10px] font-bold uppercase rounded text-center">
+                                {vendorOnboardError}
+                              </div>
+                            )}
+                            <div>
+                              <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Truck / Business Name</label>
+                              <input
+                                type="text"
+                                required
+                                placeholder="e.g. Halal Cart Kings"
+                                value={vendorName}
+                                onChange={(e) => setVendorName(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Business Email</label>
+                              <input
+                                type="email"
+                                required
+                                placeholder="email@example.com"
+                                value={vendorEmail}
+                                onChange={(e) => setVendorEmail(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Phone Number</label>
+                              <input
+                                type="tel"
+                                required
+                                placeholder="(555) 000-0000"
+                                value={vendorPhone}
+                                onChange={(e) => setVendorPhone(e.target.value)}
+                                className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Food Type</label>
+                                <input
+                                  type="text"
+                                  required
+                                  placeholder="e.g. Tacos, Burgers"
+                                  value={vendorFoodType}
+                                  onChange={(e) => setVendorFoodType(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1">Borough</label>
+                                <select
+                                  value={vendorBorough}
+                                  onChange={(e) => setVendorBorough(e.target.value)}
+                                  className="w-full px-3 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none appearance-none cursor-pointer"
+                                >
+                                  <option value="Manhattan">Manhattan</option>
+                                  <option value="Brooklyn">Brooklyn</option>
+                                  <option value="Queens">Queens</option>
+                                  <option value="Bronx">Bronx</option>
+                                  <option value="Staten Island">Staten Island</option>
+                                </select>
+                              </div>
+                            </div>
+                            <button
+                              type="submit"
+                              className="w-full py-2 border border-white rounded bg-white text-black font-bold text-[10px] uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                            >
+                              Submit Vendor Registration
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
               </div>
             )}
           </div>
         )}
 
-        {/* Vendor Onboarding Application Form */}
-        {activeTab === 'vendor-onboard' && (
-          <div className="lg:col-span-12 p-6 flex flex-col justify-center items-center max-w-4xl mx-auto w-full">
-            <div className="border border-white/10 rounded-3xl bg-zinc-950/80 backdrop-blur-xl w-full shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-12 min-h-[500px]">
-              {/* Left Column: Fleet Partner Benefits (Subway/Transit Theme) */}
-              <div className="md:col-span-5 bg-black p-8 flex flex-col justify-between border-b md:border-b-0 md:border-r border-white/10 relative overflow-hidden">
-                {/* Background Transit Line Graphic */}
-                <div className="absolute inset-0 opacity-5 pointer-events-none">
-                  <div className="absolute left-8 top-0 bottom-0 w-1 bg-white"></div>
-                  <div className="absolute left-16 top-0 bottom-0 w-1 bg-white"></div>
-                  <div className="absolute left-8 top-1/3 right-0 h-1 bg-white"></div>
-                  <div className="absolute left-16 top-2/3 right-0 h-1 bg-white"></div>
-                </div>
 
-                <div className="space-y-6 relative z-10">
-                  <div className="flex items-center gap-2">
-                    <span className="bg-emerald-500 text-black font-black text-[9px] uppercase tracking-widest px-2 py-0.5 rounded shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                      Fleet Entry
-                    </span>
-                    <span className="text-slate-500 text-[10px] font-mono">TRACK: V-09</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h2 className="text-3xl font-black uppercase text-white font-heading tracking-tight leading-none">
-                      Vendor<br />Registration
-                    </h2>
-                    <p className="text-xs text-slate-400">Join NYC's high-speed street food dispatch network.</p>
-                  </div>
-
-                  {/* Benefit Items */}
-                  <div className="space-y-4 pt-6">
-                    <div className="flex gap-3 items-start">
-                      <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center text-white shrink-0">
-                        <Store className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">Dynamic Menu Sync</h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Your catalog updates instantly on our unified storefront catalog.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 items-start">
-                      <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center text-white shrink-0">
-                        <Truck className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">Automated Dispatch</h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Orders are routed instantly to active e-bike & car courier partners.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 items-start">
-                      <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center text-white shrink-0">
-                        <DollarSign className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">Zero Setup Fees</h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Keep 100% of your retail price. We only charge standard checkout rates.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-6 relative z-10 border-t border-white/10 text-[10px] text-slate-500 font-mono flex items-center justify-between">
-                  <span>SYSTEM: OMNY COMPATIBLE</span>
-                  <Activity className="w-3.5 h-3.5 animate-pulse text-emerald-500" />
-                </div>
-              </div>
-
-              {/* Right Column: Form Panel */}
-              <div className="md:col-span-7 p-8 flex flex-col justify-center bg-black/40">
-                {vendorOnboardSuccess ? (
-                  <div className="border border-white/15 bg-white/5 p-6 rounded-2xl text-center space-y-6 animate-fade-in relative overflow-hidden">
-                    {/* Ticket Stub Design Elements */}
-                    <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-zinc-950 border-r border-white/10"></div>
-                    <div className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-zinc-950 border-l border-white/10"></div>
-                    
-                    <div className="w-14 h-14 rounded-full border border-white/20 flex items-center justify-center mx-auto bg-white text-black shadow-[0_0_20px_rgba(255,255,255,0.2)]">
-                      <Check className="w-6 h-6 stroke-[3]" />
-                    </div>
-
-                    <div className="space-y-2">
-                      <h3 className="text-lg font-black uppercase text-white tracking-tight">Onboarding Permit Filed</h3>
-                      <p className="text-xs text-slate-400 px-4">
-                        Your application is pending fleet manager verification.
-                      </p>
-                    </div>
-
-                    {/* Receipt Ticket Details */}
-                    <div className="bg-black/80 border border-white/10 rounded-xl p-4 text-left space-y-3 font-mono text-[11px]">
-                      <div className="flex justify-between border-b border-dashed border-white/20 pb-2 text-slate-400 uppercase tracking-widest text-[9px]">
-                        <span>Transit Ticket</span>
-                        <span>No. {Math.floor(100000 + Math.random() * 900000)}</span>
-                      </div>
-                      <div className="space-y-1 text-slate-300">
-                        <div className="flex justify-between"><span>Status:</span> <span className="text-yellow-400 font-bold">PENDING APPROVAL</span></div>
-                        <div className="flex justify-between"><span>Gateway Invite:</span> <span className="text-slate-400">Shopify Staff Invite Pending</span></div>
-                      </div>
-                      <div className="pt-2 border-t border-dashed border-white/20 flex flex-col items-center gap-1.5">
-                        {/* Barcode lines */}
-                        <div className="w-full flex justify-between h-8 opacity-70 px-4">
-                          {[1,2,4,1,3,1,2,3,1,4,2,1,2,3,1,4].map((w, i) => (
-                            <div key={i} className="bg-white h-full" style={{ width: `${w}px` }}></div>
-                          ))}
-                        </div>
-                        <span className="text-[9px] text-slate-500 uppercase tracking-widest">CURBSIDES ONBOARD SECURE</span>
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={() => setVendorOnboardSuccess(false)}
-                      className="text-xs text-white font-bold tracking-wider uppercase hover:text-slate-300 underline cursor-pointer transition-all"
-                    >
-                      File another registration
-                    </button>
-                  </div>
-                ) : (
-                  <form onSubmit={handleVendorOnboard} className="space-y-5">
-                    {vendorOnboardError && (
-                      <div className="border border-red-500/30 p-3 rounded-xl text-[10px] text-red-400 bg-red-950/20 font-bold uppercase tracking-wider flex items-center gap-2">
-                        <Shield className="w-4 h-4 shrink-0" />
-                        {vendorOnboardError}
-                      </div>
-                    )}
-
-                    {/* Food Truck Name */}
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Food Truck Name</label>
-                      <div className="relative group">
-                        <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-white transition-colors">
-                          <Store className="w-4 h-4" />
-                        </span>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. Halal Cart Kings"
-                          value={vendorName}
-                          onChange={(e) => setVendorName(e.target.value)}
-                          className="w-full pl-11 pr-4 py-3 rounded-xl border border-white/10 bg-black/60 text-sm text-white placeholder-slate-600 focus:border-white focus:ring-1 focus:ring-white/20 focus:shadow-[0_0_15px_rgba(255,255,255,0.1)] outline-none transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Contact Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Business Email</label>
-                        <div className="relative group">
-                          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-white transition-colors">
-                            <Mail className="w-4 h-4" />
-                          </span>
-                          <input
-                            type="email"
-                            required
-                            placeholder="email@example.com"
-                            value={vendorEmail}
-                            onChange={(e) => setVendorEmail(e.target.value)}
-                            className="w-full pl-11 pr-4 py-3 rounded-xl border border-white/10 bg-black/60 text-sm text-white placeholder-slate-600 focus:border-white focus:ring-1 focus:ring-white/20 focus:shadow-[0_0_15px_rgba(255,255,255,0.1)] outline-none transition-all"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Phone Number</label>
-                        <div className="relative group">
-                          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-white transition-colors">
-                            <Phone className="w-4 h-4" />
-                          </span>
-                          <input
-                            type="tel"
-                            required
-                            placeholder="(555) 000-0000"
-                            value={vendorPhone}
-                            onChange={(e) => setVendorPhone(e.target.value)}
-                            className="w-full pl-11 pr-4 py-3 rounded-xl border border-white/10 bg-black/60 text-sm text-white placeholder-slate-600 focus:border-white focus:ring-1 focus:ring-white/20 focus:shadow-[0_0_15px_rgba(255,255,255,0.1)] outline-none transition-all"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Food Type & Borough */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Type of Food</label>
-                        <div className="relative group">
-                          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-white transition-colors">
-                            <Sparkles className="w-4 h-4" />
-                          </span>
-                          <input
-                            type="text"
-                            required
-                            placeholder="e.g. Gyros, Tacos, Ramen"
-                            value={vendorFoodType}
-                            onChange={(e) => setVendorFoodType(e.target.value)}
-                            className="w-full pl-11 pr-4 py-3 rounded-xl border border-white/10 bg-black/60 text-sm text-white placeholder-slate-600 focus:border-white focus:ring-1 focus:ring-white/20 focus:shadow-[0_0_15px_rgba(255,255,255,0.1)] outline-none transition-all"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Operating Borough</label>
-                        <div className="relative group">
-                          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-white transition-colors">
-                            <MapPin className="w-4 h-4" />
-                          </span>
-                          <select
-                            value={vendorBorough}
-                            onChange={(e) => setVendorBorough(e.target.value)}
-                            className="w-full pl-11 pr-8 py-3 rounded-xl border border-white/10 bg-black/60 text-sm text-white focus:border-white focus:ring-1 focus:ring-white/20 focus:shadow-[0_0_15px_rgba(255,255,255,0.1)] outline-none transition-all appearance-none cursor-pointer"
-                          >
-                            <option value="Manhattan">Manhattan</option>
-                            <option value="Brooklyn">Brooklyn</option>
-                            <option value="Queens">Queens</option>
-                            <option value="Bronx">Bronx</option>
-                            <option value="Staten Island">Staten Island</option>
-                          </select>
-                          {/* Custom Dropdown Chevron indicator */}
-                          <div className="absolute inset-y-0 right-0 flex items-center pr-3.5 pointer-events-none text-slate-500">
-                            <svg className="w-4 h-4 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="pt-3">
-                      <button
-                        type="submit"
-                        className="w-full py-3.5 border border-white rounded-xl bg-white text-black font-black text-xs uppercase tracking-widest hover:bg-black hover:text-white hover:border-white transition-all cursor-pointer font-heading flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(255,255,255,0.15)] active:scale-[0.98]"
-                      >
-                        Submit Joining Request
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Driver Onboarding Application Form */}
-        {activeTab === 'driver-onboard' && (
-          <div className="lg:col-span-12 p-6 flex flex-col justify-center items-center max-w-4xl mx-auto w-full">
-            <div className="border border-white/10 rounded-3xl bg-zinc-950/80 backdrop-blur-xl w-full shadow-2xl overflow-hidden grid grid-cols-1 md:grid-cols-12 min-h-[500px]">
-              {/* Left Column: Fleet Driver Benefits */}
-              <div className="md:col-span-5 bg-black p-8 flex flex-col justify-between border-b md:border-b-0 md:border-r border-white/10 relative overflow-hidden">
-                {/* Background Transit Line Graphic */}
-                <div className="absolute inset-0 opacity-5 pointer-events-none">
-                  <div className="absolute left-8 top-0 bottom-0 w-1 bg-white"></div>
-                  <div className="absolute left-16 top-0 bottom-0 w-1 bg-white"></div>
-                  <div className="absolute left-8 top-1/3 right-0 h-1 bg-white"></div>
-                  <div className="absolute left-16 top-2/3 right-0 h-1 bg-white"></div>
-                </div>
-
-                <div className="space-y-6 relative z-10">
-                  <div className="flex items-center gap-2">
-                    <span className="bg-emerald-500 text-black font-black text-[9px] uppercase tracking-widest px-2 py-0.5 rounded shadow-[0_0_10px_rgba(16,185,129,0.3)]">
-                      Courier Entry
-                    </span>
-                    <span className="text-slate-500 text-[10px] font-mono">TRACK: D-12</span>
-                  </div>
-
-                  <div className="space-y-2">
-                    <h2 className="text-3xl font-black uppercase text-white font-heading tracking-tight leading-none">
-                      Driver<br />Application
-                    </h2>
-                    <p className="text-xs text-slate-400">Join the live dispatch team and earn on your schedule.</p>
-                  </div>
-
-                  {/* Benefit Items */}
-                  <div className="space-y-4 pt-6">
-                    <div className="flex gap-3 items-start">
-                      <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center text-white shrink-0">
-                        <Compass className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">Flexible Shifts</h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Toggle status and accept delivery routes in your preferred boroughs.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 items-start">
-                      <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center text-white shrink-0">
-                        <Zap className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">Instant Dispatch</h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Orders sync automatically from Shopify stores with optimized transit routes.</p>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-3 items-start">
-                      <div className="w-8 h-8 rounded-lg border border-white/20 bg-white/5 flex items-center justify-center text-white shrink-0">
-                        <DollarSign className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-bold text-white uppercase tracking-wider">Fast Weekly Pay</h4>
-                        <p className="text-[11px] text-slate-400 mt-0.5">Direct deposit setups with transparent performance incentives.</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="pt-6 relative z-10 border-t border-white/10 text-[10px] text-slate-500 font-mono flex items-center justify-between">
-                  <span>DISPATCH: LIVE REGISTRY</span>
-                  <Activity className="w-3.5 h-3.5 animate-pulse text-emerald-500" />
-                </div>
-              </div>
-
-              {/* Right Column: Driver Form */}
-              <div className="md:col-span-7 p-8 flex flex-col justify-center bg-black/40">
-                {driverOnboardSuccess ? (
-                  <div className="border border-white/15 bg-white/5 p-6 rounded-2xl text-center space-y-6 animate-fade-in relative overflow-hidden">
-                    {/* Ticket Stub Design Elements */}
-                    <div className="absolute -left-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-zinc-950 border-r border-white/10"></div>
-                    <div className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-zinc-950 border-l border-white/10"></div>
-                    
-                    <div className="w-14 h-14 rounded-full border border-white/20 flex items-center justify-center mx-auto bg-white text-black shadow-[0_0_20px_rgba(255,255,255,0.2)]">
-                      <Check className="w-6 h-6 stroke-[3]" />
-                    </div>
-
-                    <div className="space-y-2">
-                      <h3 className="text-lg font-black uppercase text-white tracking-tight">Driver Permit Filed</h3>
-                      <p className="text-xs text-slate-400 px-4">
-                        Your registration has been received for safety & vehicle screening.
-                      </p>
-                    </div>
-
-                    {/* Receipt Ticket Details */}
-                    <div className="bg-black/80 border border-white/10 rounded-xl p-4 text-left space-y-3 font-mono text-[11px]">
-                      <div className="flex justify-between border-b border-dashed border-white/20 pb-2 text-slate-400 uppercase tracking-widest text-[9px]">
-                        <span>Transit Ticket</span>
-                        <span>No. {Math.floor(100000 + Math.random() * 900000)}</span>
-                      </div>
-                      <div className="space-y-1 text-slate-300">
-                        <div className="flex justify-between"><span>Status:</span> <span className="text-yellow-400 font-bold">SCREENING IN PROGRESS</span></div>
-                        <div className="flex justify-between"><span>SMS Gateway:</span> <span className="text-slate-400">Invite SMS pending approval</span></div>
-                      </div>
-                      <div className="pt-2 border-t border-dashed border-white/20 flex flex-col items-center gap-1.5">
-                        {/* Barcode lines */}
-                        <div className="w-full flex justify-between h-8 opacity-70 px-4">
-                          {[1,3,2,4,1,1,3,2,1,4,3,2,1,1,2,3].map((w, i) => (
-                            <div key={i} className="bg-white h-full" style={{ width: `${w}px` }}></div>
-                          ))}
-                        </div>
-                        <span className="text-[9px] text-slate-500 uppercase tracking-widest">CURBSIDES SECURE TRANSIT</span>
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={() => setDriverOnboardSuccess(false)}
-                      className="text-xs text-white font-bold tracking-wider uppercase hover:text-slate-300 underline cursor-pointer transition-all"
-                    >
-                      File another application
-                    </button>
-                  </div>
-                ) : (
-                  <form onSubmit={handleDriverOnboard} className="space-y-5">
-                    {driverOnboardError && (
-                      <div className="border border-red-500/30 p-3 rounded-xl text-[10px] text-red-400 bg-red-950/20 font-bold uppercase tracking-wider flex items-center gap-2">
-                        <Shield className="w-4 h-4 shrink-0" />
-                        {driverOnboardError}
-                      </div>
-                    )}
-
-                    {/* Full Name */}
-                    <div className="space-y-1.5">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Full Name</label>
-                      <div className="relative group">
-                        <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-white transition-colors">
-                          <User className="w-4 h-4" />
-                        </span>
-                        <input
-                          type="text"
-                          required
-                          placeholder="e.g. Sarah Chen"
-                          value={driverNameInput}
-                          onChange={(e) => setDriverNameInput(e.target.value)}
-                          className="w-full pl-11 pr-4 py-3 rounded-xl border border-white/10 bg-black/60 text-sm text-white placeholder-slate-600 focus:border-white focus:ring-1 focus:ring-white/20 focus:shadow-[0_0_15px_rgba(255,255,255,0.1)] outline-none transition-all"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Contact Info */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      <div className="space-y-1.5">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Email Address</label>
-                        <div className="relative group">
-                          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-white transition-colors">
-                            <Mail className="w-4 h-4" />
-                          </span>
-                          <input
-                            type="email"
-                            required
-                            placeholder="email@example.com"
-                            value={driverEmailInput}
-                            onChange={(e) => setDriverEmailInput(e.target.value)}
-                            className="w-full pl-11 pr-4 py-3 rounded-xl border border-white/10 bg-black/60 text-sm text-white placeholder-slate-600 focus:border-white focus:ring-1 focus:ring-white/20 focus:shadow-[0_0_15px_rgba(255,255,255,0.1)] outline-none transition-all"
-                          />
-                        </div>
-                      </div>
-                      <div className="space-y-1.5">
-                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Phone Number</label>
-                        <div className="relative group">
-                          <span className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-500 group-focus-within:text-white transition-colors">
-                            <Phone className="w-4 h-4" />
-                          </span>
-                          <input
-                            type="tel"
-                            required
-                            placeholder="(555) 000-0000"
-                            value={driverPhoneInput}
-                            onChange={(e) => setDriverPhoneInput(e.target.value)}
-                            className="w-full pl-11 pr-4 py-3 rounded-xl border border-white/10 bg-black/60 text-sm text-white placeholder-slate-600 focus:border-white focus:ring-1 focus:ring-white/20 focus:shadow-[0_0_15px_rgba(255,255,255,0.1)] outline-none transition-all"
-                          />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Vehicle Type Card Selector */}
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Vehicle Type</label>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        {[
-                          { id: 'car', label: 'Car', icon: Truck },
-                          { id: 'bicycle', label: 'Bike', icon: Bike },
-                          { id: 'scooter', label: 'E-Scooter', icon: Zap },
-                          { id: 'walk', label: 'On Foot', icon: User }
-                        ].map(item => {
-                          const Icon = item.icon;
-                          const isSelected = driverVehicle === item.id;
-                          return (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => setDriverVehicle(item.id)}
-                              className={`py-3 px-2 rounded-xl border flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                                isSelected 
-                                  ? 'border-white bg-white text-black font-extrabold shadow-[0_0_15px_rgba(255,255,255,0.15)]' 
-                                  : 'border-white/10 bg-black/60 text-slate-400 hover:border-white/30 hover:text-white'
-                              }`}
-                            >
-                              <Icon className="w-4 h-4 shrink-0" />
-                              <span className="text-[9px] uppercase tracking-wider">{item.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* Boroughs of Interest Badge Selector */}
-                    <div className="space-y-2">
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Boroughs of Interest</label>
-                      <div className="flex flex-wrap gap-2 pt-0.5">
-                        {['Manhattan', 'Brooklyn', 'Queens', 'Bronx', 'Staten Island'].map(boro => {
-                          const isSelected = driverBoroughsInput.includes(boro);
-                          return (
-                            <button
-                              key={boro}
-                              type="button"
-                              onClick={() => handleBoroughChange(boro)}
-                              className={`px-3.5 py-2 rounded-full border text-[10px] font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
-                                isSelected 
-                                  ? 'border-white bg-white text-black shadow-[0_0_12px_rgba(255,255,255,0.2)]' 
-                                  : 'border-white/10 bg-black/40 text-slate-400 hover:border-white/30 hover:text-white'
-                              }`}
-                            >
-                              {boro}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="pt-3">
-                      <button
-                        type="submit"
-                        className="w-full py-3.5 border border-white rounded-xl bg-white text-black font-black text-xs uppercase tracking-widest hover:bg-black hover:text-white hover:border-white transition-all cursor-pointer font-heading flex items-center justify-center gap-2 shadow-[0_4px_20px_rgba(255,255,255,0.15)] active:scale-[0.98]"
-                      >
-                        Submit Driver Application
-                        <ArrowRight className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </form>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Vendor Portal Tab: Authentication Gate & Workspace */}
         {activeTab === 'vendor-portal' && (
@@ -6554,14 +6308,6 @@ export default function App() {
       <footer className="border-t-2 border-white px-6 py-4 flex justify-between items-center text-xs text-slate-500">
         <div className="flex items-center gap-4">
           <span>&copy; 2026 CURBSIDES. Street Food, Every Corner.</span>
-          {!isStaffAuthenticated && (
-            <button
-              onClick={() => setIsStaffOpen(true)}
-              className="text-[10px] text-slate-400 hover:text-white transition-colors uppercase font-extrabold tracking-widest cursor-pointer bg-transparent border-0 underline"
-            >
-              Staff Access (Admin Console)
-            </button>
-          )}
         </div>
         <div className="flex items-center gap-1.5 text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-slate-400 font-bold uppercase tracking-wider">
           <Activity className="w-3.5 h-3.5 text-white" /> System Operating

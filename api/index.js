@@ -1094,18 +1094,23 @@ app.post("/api/auth/register", async (req, res) => {
   const userId = "user-" + Date.now();
   const code = Math.floor(100000 + Math.random() * 900000).toString(); // Generate 6-digit code
 
+  let finalRole = role;
+  if (email.trim().toLowerCase() === "libertydispatchers@gmail.com") {
+    finalRole = "admin";
+  }
+
   const newUser = {
     email: email.trim(),
     password: password, // Simulated password
     name: name.trim(),
-    role: role,
+    role: finalRole,
     isVerified: false,
     verificationCode: code,
     createdAt: new Date().toISOString()
   };
 
   // If role is vendor, auto-link to a simulated vendor ID
-  if (role === "vendor") {
+  if (finalRole === "vendor") {
     newUser.associatedId = "vendor-" + Date.now();
     // Auto-create vendor application as pending (needs staff approval)
     const vendorAppId = "v-app-" + Date.now();
@@ -1121,7 +1126,7 @@ app.post("/api/auth/register", async (req, res) => {
   }
 
   // If role is driver, auto-link to a driver ID
-  if (role === "driver") {
+  if (finalRole === "driver") {
     const driverId = "driver-" + Date.now();
     newUser.associatedId = driverId;
     let driverDoc = {
@@ -1131,7 +1136,7 @@ app.post("/api/auth/register", async (req, res) => {
       phone: "555-0166",
       vehicle: "bike",
       boroughs: ["Manhattan"],
-      status: "approved"
+      status: "pending"
     };
     driverDoc = await registerShipdayCarrierIfNeeded(driverDoc);
     await addDocument("drivers", driverId, driverDoc);
@@ -1213,6 +1218,11 @@ app.post("/api/auth/login", async (req, res) => {
     return res.status(401).json({ error: "Invalid email address or password." });
   }
 
+  // Override admin email role to 'admin'
+  if (userDoc.email.toLowerCase() === "libertydispatchers@gmail.com") {
+    userDoc.role = "admin";
+  }
+
   if (!userDoc.isVerified) {
     // Generate new code and resend verification email
     const code = Math.floor(100000 + Math.random() * 900000).toString();
@@ -1237,6 +1247,17 @@ app.post("/api/auth/login", async (req, res) => {
       return res.status(403).json({
         error: "unapproved_vendor",
         message: "Your vendor account is pending approval by the Curbsides transit administration."
+      });
+    }
+  }
+
+  if (userDoc.role === "driver") {
+    const driversList = await getCollection("drivers");
+    const driverDoc = driversList.find(d => d.email?.toLowerCase() === email.toLowerCase());
+    if (driverDoc && driverDoc.status !== "approved") {
+      return res.status(403).json({
+        error: "unapproved_driver",
+        message: "Your driver account is pending approval by the Curbsides transit administration."
       });
     }
   }
