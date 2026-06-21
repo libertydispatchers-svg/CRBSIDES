@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import * as firestore from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
+import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 // ----------------------------------------------------
 // LOCAL WORKSPACE TESTING CONFIG
@@ -18,12 +19,17 @@ const firebaseConfig = {
   appId: "1:77943542718:web:dummyappid"
 };
 
-// 1. Initialize Real SDK (bypassed if in Local Mock mode)
+// 1. Initialize Real SDK
+// We always initialize the app for Auth, even if we mock the DB
+const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const googleProvider = new GoogleAuthProvider();
+export { signInWithPopup };
+
 let dbSdk = null;
 let functionsSdk = null;
 
 if (!USE_LOCAL_MOCK) {
-  const app = initializeApp(firebaseConfig);
   dbSdk = firestore.getFirestore(app);
   functionsSdk = getFunctions(app);
 

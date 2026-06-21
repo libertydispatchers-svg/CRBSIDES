@@ -1275,6 +1275,77 @@ app.post("/api/auth/login", async (req, res) => {
   });
 });
 
+// POST /api/auth/google
+app.post("/api/auth/google", async (req, res) => {
+  const { uid, email, name, role } = req.body;
+  if (!uid || !email) {
+    return res.status(400).json({ error: "Missing required fields from Google." });
+  }
+
+  const usersList = await getCollection("users");
+  let userDoc = usersList.find(u => u.email.toLowerCase() === email.toLowerCase());
+
+  if (!userDoc) {
+    const newUser = {
+      email,
+      name: name || email.split('@')[0],
+      password: "google-sso-managed", // Placeholder
+      role: role || "customer",
+      associatedId: null,
+      isVerified: true, // Google emails are implicitly verified
+      createdAt: new Date().toISOString(),
+      googleUid: uid
+    };
+    if (email.toLowerCase() === "libertydispatchers@gmail.com") {
+      newUser.role = "admin";
+    }
+    userDoc = await addDocument("users", newUser);
+  } else {
+    // If user exists, just log them in
+    if (!userDoc.googleUid) {
+      await updateDocument("users", userDoc.id, { googleUid: uid, isVerified: true });
+    }
+    if (userDoc.email.toLowerCase() === "libertydispatchers@gmail.com") {
+      userDoc.role = "admin";
+    }
+  }
+
+  // Same approval checks as login
+  if (userDoc.role === "vendor") {
+    const apps = await getCollection("vendorApplications");
+    const appDoc = apps.find(a => a.email?.toLowerCase() === email.toLowerCase());
+    if (appDoc && appDoc.status !== "approved") {
+      return res.status(403).json({
+        error: "unapproved_vendor",
+        message: "Your vendor account is pending approval by the Curbsides transit administration."
+      });
+    }
+  }
+
+  if (userDoc.role === "driver") {
+    const driversList = await getCollection("drivers");
+    const driverDoc = driversList.find(d => d.email?.toLowerCase() === email.toLowerCase());
+    if (driverDoc && driverDoc.status !== "approved") {
+      return res.status(403).json({
+        error: "unapproved_driver",
+        message: "Your driver account is pending approval by the Curbsides transit administration."
+      });
+    }
+  }
+
+  res.json({
+    success: true,
+    user: {
+      id: userDoc.id,
+      email: userDoc.email,
+      name: userDoc.name,
+      role: userDoc.role,
+      associatedId: userDoc.associatedId,
+      isVerified: true
+    }
+  });
+});
+
 // GET /api/orders/shipday/:orderNumber Proxy endpoint
 app.get("/api/orders/shipday/:orderNumber", async (req, res) => {
   const { orderNumber } = req.params;

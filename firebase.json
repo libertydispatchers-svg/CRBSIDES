@@ -1,4 +1,20 @@
 {
+  "auth": {
+    "providers": {
+      "anonymous": true,
+      "emailPassword": true,
+      "googleSignIn": {
+        "oAuthBrandDisplayName": "CURBSIDES",
+        "supportEmail": "libertydispatchers@gmail.com",
+        "authorizedRedirectUris": [
+          "https://curbsides.xyz",
+          "http://localhost:5173",
+          "http://localhost",
+          "https://curbside-35431.firebaseapp.com"
+        ]
+      }
+    }
+  },
   "firestore": {
     "rules": "firestore.rules",
     "indexes": "firestore.indexes.json"

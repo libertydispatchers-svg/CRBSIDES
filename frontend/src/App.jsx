@@ -606,9 +606,66 @@ export default function App() {
   };
 
   // SSO Click Handler
-  const handleSSOClick = (method, role = 'customer') => {
+  const handleSSOClick = async (method, role = 'customer') => {
     setCustomerAuthError('');
     setVerificationError('');
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+
+    if (method === 'Google') {
+      try {
+        const { auth, googleProvider, signInWithPopup } = await import('./firebase');
+        const result = await signInWithPopup(auth, googleProvider);
+        const user = result.user;
+        
+        const res = await fetch(`${BACKEND_URL}/api/auth/google`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid: user.uid,
+            email: user.email,
+            name: user.displayName || user.email.split('@')[0],
+            role: role
+          })
+        });
+        
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error || 'Google Sign-In failed');
+        }
+        
+        if (data.user) {
+          if (data.user.role === 'admin' || data.user.email === 'libertydispatchers@gmail.com') {
+            setCustomerUser({ ...data.user, role: 'admin' });
+            setCustomerActiveSubTab('profile');
+            setActiveTab('admin');
+            setIsCustomerLoggedIn(true);
+          } else if (data.user.role === 'driver') {
+            if (data.user.status !== 'approved') {
+              alert("Your driver account is pending approval.");
+              return;
+            }
+            setDriverUser(data.user);
+            setDriverActiveSubTab('deliveries');
+            setActiveTab('driver-portal');
+          } else if (data.user.role === 'vendor') {
+            // Need to check vendor status
+            setVendorUser(data.user);
+            setVendorActiveSubTab('dashboard');
+            setActiveTab('vendor-portal');
+          } else {
+            setCustomerUser(data.user);
+            setCustomerActiveSubTab('profile');
+            setActiveTab('customer');
+            setIsCustomerLoggedIn(true);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        alert(err.message || "Google Sign In Failed");
+      }
+      return;
+    }
+
     if (method === 'Phone') {
       const phone = prompt("Enter your Mobile Phone Number for SMS/Phone verification:");
       if (!phone) return;
@@ -625,7 +682,6 @@ export default function App() {
         alert("A valid email address is required.");
         return;
       }
-      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
       fetch(`${BACKEND_URL}/api/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
