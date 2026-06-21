@@ -1333,7 +1333,7 @@ app.post("/api/auth/google", async (req, res) => {
     if (email.toLowerCase() === "libertydispatchers@gmail.com") {
       newUser.role = "admin";
     }
-    userDoc = await addDocument("users", newUser);
+    userDoc = await addDocument("users", uid, newUser);
   } else {
     // If user exists, just log them in
     if (!userDoc.googleUid) {
