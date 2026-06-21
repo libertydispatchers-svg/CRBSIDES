@@ -2156,22 +2156,6 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handleSSOClick('Facebook')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                          Facebook
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Apple')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
-                          Apple
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => handleSSOClick('Phone')}
                           className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
                         >
@@ -2270,22 +2254,6 @@ export default function App() {
                         >
                           <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                           Google
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Facebook')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                          Facebook
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Apple')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
-                          Apple
                         </button>
                         <button
                           type="button"
@@ -3067,22 +3035,6 @@ export default function App() {
                       </button>
                         <button
                           type="button"
-                          onClick={() => handleSSOClick('Facebook', 'vendor')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                          Facebook
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Apple', 'vendor')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
-                          Apple
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => handleSSOClick('Phone', 'vendor')}
                           className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
                         >
@@ -3207,22 +3159,6 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Facebook', 'vendor')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                          Facebook
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Apple', 'vendor')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
-                          Apple
-                        </button>
                         <button
                           type="button"
                           onClick={() => handleSSOClick('Phone', 'vendor')}
@@ -4036,22 +3972,6 @@ export default function App() {
                       </button>
                         <button
                           type="button"
-                          onClick={() => handleSSOClick('Facebook', 'driver')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                          Facebook
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Apple', 'driver')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
-                          Apple
-                        </button>
-                        <button
-                          type="button"
                           onClick={() => handleSSOClick('Phone', 'driver')}
                           className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
                         >
@@ -4165,22 +4085,6 @@ export default function App() {
                         <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
                         Google
                       </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Facebook', 'driver')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-[#1877F2]/30 rounded-xl bg-[#1877F2]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#1877F2] hover:text-white transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
-                          Facebook
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Apple', 'driver')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-black text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12 20.444c-1.396 0-2.827-.615-4.06-1.745-1.536-1.41-3.13-3.612-3.13-6.505 0-2.887 1.405-4.992 3.195-6.223C9.42 4.996 11.026 4.672 12 4.672c1.4 0 2.973.498 4.316 1.644 1.258 1.074 2.584 2.946 2.584 5.879 0 3.018-1.523 5.305-3.181 6.78-1.378 1.226-2.614 1.469-3.719 1.469zm-1.636-16.14c.143-1.895 1.574-3.52 3.418-3.923.332 2.079-1.22 4.02-3.418 3.923z"/></svg>
-                          Apple
-                        </button>
                         <button
                           type="button"
                           onClick={() => handleSSOClick('Phone', 'driver')}
