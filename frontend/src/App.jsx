@@ -5612,6 +5612,7 @@ export default function App() {
                               <td className="py-3 font-semibold uppercase">{app.foodType}</td>
                               <td className="py-3 uppercase text-[10px] font-bold text-amber-400">{app.status}</td>
                               <td className="py-3 text-right">
+                                <button
                                   onClick={() => app.status !== 'approved' ? setVendorReviewModal(app) : null}
                                   className={`px-2 py-1 border border-white rounded text-[10px] font-bold uppercase transition-all ${app.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 cursor-default' : 'bg-white text-black hover:bg-black hover:text-white cursor-pointer'}`}
                                 >
@@ -5622,7 +5623,6 @@ export default function App() {
                           ))}
                         </tbody>
                       </table>
-                    </div>
                     </div>
 
                     {/* Vendor Review Modal */}
