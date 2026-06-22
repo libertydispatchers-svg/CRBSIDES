@@ -87,6 +87,7 @@ export default function App() {
   const [vendorPhone, setVendorPhone] = useState('');
   const [vendorBorough, setVendorBorough] = useState('Manhattan');
   const [vendorFoodType, setVendorFoodType] = useState('');
+  const [vendorLocation, setVendorLocation] = useState('');
   const [vendorOnboardSuccess, setVendorOnboardSuccess] = useState(false);
   const [vendorOnboardError, setVendorOnboardError] = useState('');
 
@@ -906,7 +907,10 @@ export default function App() {
     setVendorOnboardError('');
     setVendorOnboardSuccess(false);
 
-    if (!vendorName.trim() || !vendorEmail.trim() || !vendorPhone.trim() || !vendorFoodType.trim()) {
+    const finalName = vendorName.trim() || customerUser?.name?.trim() || '';
+    const finalEmail = vendorEmail.trim() || customerUser?.email?.trim() || '';
+
+    if (!finalName || !finalEmail || !vendorPhone.trim() || !vendorFoodType.trim() || !vendorLocation.trim()) {
       setVendorOnboardError('All fields are required.');
       return;
     }
@@ -915,11 +919,12 @@ export default function App() {
     if (!agreeTerms) return;
 
     const newApp = {
-      name: vendorName.trim(),
-      email: vendorEmail.trim(),
+      name: finalName,
+      email: finalEmail,
       phone: vendorPhone.trim(),
       foodType: vendorFoodType.trim(),
-      borough: vendorBorough
+      borough: vendorBorough,
+      location: vendorLocation.trim()
     };
 
     try {
@@ -942,6 +947,7 @@ export default function App() {
     setVendorEmail('');
     setVendorPhone('');
     setVendorFoodType('');
+    setVendorLocation('');
   };
 
   const handleDriverOnboard = async (e) => {
@@ -949,14 +955,20 @@ export default function App() {
     setDriverOnboardError('');
     setDriverOnboardSuccess(false);
 
-    if (!driverNameInput.trim() || !driverEmailInput.trim() || !driverPhoneInput.trim()) {
+    const finalName = driverNameInput.trim() || customerUser?.name?.trim() || '';
+    const finalEmail = driverEmailInput.trim() || customerUser?.email?.trim() || '';
+
+    if (!finalName || !finalEmail) {
       setDriverOnboardError('All fields are required.');
       return;
     }
 
+    const agreeTerms = window.confirm("NOTICE: We strictly vet all our dashers and vendors. We occasionally will test orders to make sure you are providing the absolute best service. Do you agree to these terms and wish to proceed?");
+    if (!agreeTerms) return;
+
     const newDriver = {
-      fullName: driverNameInput.trim(),
-      email: driverEmailInput.trim(),
+      fullName: finalName,
+      email: finalEmail,
       phone: driverPhoneInput.trim(),
       vehicleType: driverVehicle,
       boroughs: driverBoroughsInput,
@@ -2382,9 +2394,10 @@ export default function App() {
                       type="text"
                       required
                       placeholder="e.g. Halal Cart Kings"
-                      value={vendorName}
+                      value={vendorName || customerUser?.name || ''}
                       onChange={(e) => setVendorName(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                      readOnly={!!customerUser}
+                      className={`w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none ${customerUser ? 'opacity-70 cursor-not-allowed' : ''}`}
                     />
                   </div>
                   <div>
@@ -2410,13 +2423,13 @@ export default function App() {
                       className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Food Type</label>
                       <input
                         type="text"
                         required
-                        placeholder="e.g. Tacos, Burgers"
+                        placeholder="e.g. Tacos"
                         value={vendorFoodType}
                         onChange={(e) => setVendorFoodType(e.target.value)}
                         className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
@@ -2427,7 +2440,7 @@ export default function App() {
                       <select
                         value={vendorBorough}
                         onChange={(e) => setVendorBorough(e.target.value)}
-                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none appearance-none cursor-pointer"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none appearance-none"
                       >
                         <option value="Manhattan">Manhattan</option>
                         <option value="Brooklyn">Brooklyn</option>
@@ -2436,6 +2449,17 @@ export default function App() {
                         <option value="Staten Island">Staten Island</option>
                       </select>
                     </div>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Pickup Location (PIN STOP)</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. NW Corner 5th & 42nd St"
+                      value={vendorLocation}
+                      onChange={(e) => setVendorLocation(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                    />
                   </div>
 
                   <div className="flex gap-3 pt-2">
