@@ -4707,6 +4707,15 @@ export default function App() {
                           >
                             Integrations
                           </button>
+                          <button
+                            onClick={() => {
+                              setIsAdminAuthenticated(false);
+                              setActiveTab('directory');
+                            }}
+                            className="px-3 py-1.5 border border-rose-500/50 text-rose-400 hover:bg-rose-500/10 rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ml-auto"
+                          >
+                            Sign Out
+                          </button>
                         </div>
                       </div>
 

@@ -1015,12 +1015,8 @@ async function sendDriverWelcomeEmail(email, name, carrierId, password) {
     <div style="background-color: #000; color: #fff; padding: 30px; font-family: sans-serif; border: 2px solid #fff; border-radius: 12px; max-width: 500px; margin: 0 auto;">
       <h1 style="font-size: 24px; text-transform: uppercase; border-bottom: 2px solid #fff; padding-bottom: 15px; margin-top: 0;">CURBSIDES Courier Dispatch</h1>
       <p style="font-size: 14px; color: #a0aec0;">Hello ${name},</p>
-      <p style="font-size: 14px; color: #a0aec0;">Welcome to the fleet! Your courier account is approved and synced with our Shipday dispatch system.</p>
-      <div style="background-color: #1a1a1a; border: 1px solid #333; padding: 20px; border-radius: 8px; margin: 25px 0; font-size: 14px;">
-        <p style="margin: 5px 0; color: #a0aec0;"><strong>Carrier ID:</strong> <span style="color: #fff; font-family: monospace;">${carrierId}</span></p>
-        <p style="margin: 5px 0; color: #a0aec0;"><strong>Temporary Password:</strong> <span style="color: #fff; font-family: monospace;">${password || "Refer to Shipday Invite"}</span></p>
-      </div>
-      <p style="font-size: 13px; color: #a0aec0;">Please download the Shipday Drive app from the Apple App Store or Google Play Store and log in with your credentials to begin receiving dispatches.</p>
+      <p style="font-size: 14px; color: #a0aec0;">Welcome to the fleet! Your courier account is approved and you are now part of our dispatch system.</p>
+      <p style="font-size: 13px; color: #a0aec0;">You can now log into the Curbsides Driver Portal using your email and password to begin receiving dispatches and managing your routes.</p>
       <p style="font-size: 11px; color: #718096; border-top: 1px solid #222; padding-top: 15px; margin-bottom: 0;">This is an automated fleet onboarding transmission.</p>
     </div>
   `;
