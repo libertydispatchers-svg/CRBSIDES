@@ -848,6 +848,9 @@ export default function App() {
       return;
     }
 
+    const agreeTerms = window.confirm("NOTICE: We strictly vet all our dashers and vendors. We occasionally will test orders to make sure you are providing the absolute best service. Do you agree to these terms and wish to proceed?");
+    if (!agreeTerms) return;
+
     const newApp = {
       name: vendorName.trim(),
       email: vendorEmail.trim(),
@@ -6237,11 +6240,23 @@ export default function App() {
       )}
 
       {/* Footer */}
-      <footer className="border-t-2 border-white px-6 py-4 flex justify-between items-center text-xs text-slate-500">
-        <div className="flex items-center gap-4">
-          <span>&copy; 2026 CURBSIDES. Street Food, Every Corner.</span>
+      <footer className="border-t-2 border-white px-6 py-6 flex flex-col md:flex-row justify-between items-center gap-6 text-xs text-slate-500 bg-black">
+        <div className="flex flex-col md:flex-row items-center gap-6">
+          <span className="font-bold text-white">&copy; 2026 CURBSIDES.</span>
+          <div className="flex flex-wrap justify-center gap-4 text-[10px] md:text-xs">
+            <button onClick={() => setActiveTab('directory')} className="hover:text-white transition-colors cursor-pointer uppercase font-bold tracking-widest">Apply as Driver</button>
+            <button onClick={() => setActiveTab('directory')} className="hover:text-white transition-colors cursor-pointer uppercase font-bold tracking-widest">Apply as Vendor</button>
+            <a href="#" className="hover:text-white transition-colors uppercase tracking-widest">Privacy Policy</a>
+            <a href="#" className="hover:text-white transition-colors uppercase tracking-widest">Refund Policy</a>
+            <button 
+              onClick={() => alert("TERMS OF SERVICE\n\nWelcome to Curbsides.\n\nPlease note that we strictly vet our vendors and dashers. We occasionally test orders to ensure vendors are providing the absolute best service. By using this platform, you agree that you understand what you are ordering.")}
+              className="hover:text-white transition-colors cursor-pointer uppercase tracking-widest text-left"
+            >
+              Terms of Service
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-1.5 text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-slate-400 font-bold uppercase tracking-wider">
+        <div className="flex items-center gap-1.5 text-[9px] bg-white/5 border border-white/10 px-2.5 py-1 rounded-full text-slate-400 font-bold uppercase tracking-wider whitespace-nowrap">
           <Activity className="w-3.5 h-3.5 text-white" /> System Operating
         </div>
       </footer>
