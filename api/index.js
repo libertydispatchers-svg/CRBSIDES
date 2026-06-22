@@ -22,7 +22,7 @@ const db = {
   orders: [],
   finance: [],
   users: [],
-  vendorApplications: [
+  "vendor-applications": [
     { id: 'v-app-1', name: 'Halal Cart Kings', email: 'kings@halalcart.com', phone: '555-9000', foodType: 'Gyros & Rice', borough: 'Manhattan', status: 'pending' }
   ]
 };
@@ -180,7 +180,20 @@ const nycCoordinates = {
 };
 
 function getCoordsFromAddress(address) {
+  if (!address) return { lat: 40.7128, lon: -74.0060 };
   const lower = address.toLowerCase();
+
+  // Extract coordinates directly if in form "Live Location (40.7150, -73.9843)" or "40.7150, -73.9843"
+  const coordsRegex = /(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/;
+  const match = address.match(coordsRegex);
+  if (match) {
+    const lat = parseFloat(match[1]);
+    const lon = parseFloat(match[2]);
+    if (!isNaN(lat) && !isNaN(lon)) {
+      return { lat, lon };
+    }
+  }
+
   for (const [key, coords] of Object.entries(nycCoordinates)) {
     if (lower.includes(key)) {
       return coords;
@@ -431,6 +444,8 @@ app.post("/api/orders", async (req, res) => {
     netPayout: netDriverPayout,
     status: "pending",
     driverId: null,
+    total: totalPrice,
+    items: items || [],
     createdAt: new Date().toISOString()
   };
   await addDocument("orders", orderId, orderDoc);
@@ -575,7 +590,7 @@ app.get("/api/finance", async (req, res) => {
 });
 
 app.get("/api/vendor-applications", async (req, res) => {
-  const list = await getCollection("vendorApplications");
+  const list = await getCollection("vendor-applications");
   res.json(list);
 });
 
@@ -586,14 +601,14 @@ app.post("/api/vendor-applications", async (req, res) => {
     createdAt: new Date().toISOString(),
     status: "pending"
   };
-  const saved = await addDocument("vendorApplications", appId, application);
+  const saved = await addDocument("vendor-applications", appId, application);
   res.status(201).json(saved);
 });
 
 app.patch("/api/vendor-applications/:id", async (req, res) => {
-  const app = await getDocument("vendorApplications", req.params.id);
+  const app = await getDocument("vendor-applications", req.params.id);
   if (app) {
-    const updated = await updateDocument("vendorApplications", req.params.id, req.body);
+    const updated = await updateDocument("vendor-applications", req.params.id, req.body);
     
     if (app.status !== "approved" && req.body.status === "approved") {
       console.log(`[Resend] Vendor application approved. Sending welcome email to ${app.email}`);
@@ -1061,19 +1076,19 @@ async function sendVendorWelcomeEmail(email, name) {
 }
 
 app.post("/api/auth/register", async (req, res) => {
-  const { email, password, name, role } = req.body;
+  const { email, password, name, role, uid } = req.body;
   if (!email || !password || !name || !role) {
     return res.status(400).json({ error: "Missing required fields (email, password, name, role)" });
   }
 
   // Check if user already exists
   const existingUsers = await getCollection("users");
-  const foundUser = existingUsers.find(u => u.email.toLowerCase() === email.toLowerCase());
-  if (foundUser) {
+  const foundUser = existingUsers.find(u => u.email.toLowerCase() === email.toLowerCase() || (uid && u.id === uid));
+  if (foundUser && foundUser.isVerified) {
     return res.status(409).json({ error: "An account with this email address already exists." });
   }
 
-  const userId = "user-" + Date.now();
+  const userId = uid || "user-" + Date.now();
   const code = Math.floor(100000 + Math.random() * 900000).toString(); // Generate 6-digit code
 
   let finalRole = role;
@@ -1096,7 +1111,7 @@ app.post("/api/auth/register", async (req, res) => {
     newUser.associatedId = "vendor-" + Date.now();
     // Auto-create vendor application as pending (needs staff approval)
     const vendorAppId = "v-app-" + Date.now();
-    await addDocument("vendorApplications", vendorAppId, {
+    await addDocument("vendor-applications", vendorAppId, {
       id: vendorAppId,
       name: name,
       email: email,
@@ -1223,7 +1238,7 @@ app.post("/api/auth/login", async (req, res) => {
   }
 
   if (userDoc.role === "vendor") {
-    const apps = await getCollection("vendorApplications");
+    const apps = await getCollection("vendor-applications");
     const appDoc = apps.find(a => a.email?.toLowerCase() === email.toLowerCase());
     if (appDoc && appDoc.status !== "approved") {
       return res.status(403).json({
@@ -1255,6 +1270,60 @@ app.post("/api/auth/login", async (req, res) => {
       isVerified: true
     }
   });
+});
+
+// POST /api/auth/resend-code
+app.post("/api/auth/resend-code", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: "Email is required." });
+  }
+  const usersList = await getCollection("users");
+  const userDoc = usersList.find(u => u.email.toLowerCase() === email.toLowerCase());
+  if (!userDoc) {
+    return res.status(404).json({ error: "User not found." });
+  }
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  await updateDocument("users", userDoc.id, {
+    verificationCode: code
+  });
+  await sendVerificationEmail(userDoc.email, userDoc.name, code);
+  res.json({ success: true, message: "Verification code resent." });
+});
+
+// POST /api/auth/forgot-password
+app.post("/api/auth/forgot-password", async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ error: "Email is required." });
+  }
+  const usersList = await getCollection("users");
+  const userDoc = usersList.find(u => u.email.toLowerCase() === email.toLowerCase());
+  if (!userDoc) {
+    return res.status(404).json({ error: "No account found with this email address." });
+  }
+
+  // Generate a random temporary password
+  const tempPass = Math.random().toString(36).substring(2, 10).toUpperCase();
+  await updateDocument("users", userDoc.id, {
+    password: tempPass
+  });
+
+  const html = `
+    <div style="background-color: #000; color: #fff; padding: 30px; font-family: sans-serif; border: 2px solid #fff; border-radius: 12px; max-width: 500px; margin: 0 auto;">
+      <h1 style="font-size: 24px; text-transform: uppercase; border-bottom: 2px solid #fff; padding-bottom: 15px; margin-top: 0;">CURBSIDES Password Reset</h1>
+      <p style="font-size: 14px; color: #a0aec0;">Hello ${userDoc.name},</p>
+      <p style="font-size: 14px; color: #a0aec0;">You requested a password reset. Below is your temporary passcode to access your account:</p>
+      <div style="background-color: #1a1a1a; border: 1px solid #333; padding: 20px; text-align: center; border-radius: 8px; margin: 25px 0;">
+        <span style="font-family: monospace; font-size: 24px; font-weight: bold; color: #fff;">${tempPass}</span>
+      </div>
+      <p style="font-size: 13px; color: #a0aec0;">Please log in using this temporary passcode and update your password in your settings profile.</p>
+      <p style="font-size: 11px; color: #718096; border-top: 1px solid #222; padding-top: 15px; margin-bottom: 0;">This is an automated security notification.</p>
+    </div>
+  `;
+  await sendEmail({ to: userDoc.email, subject: "CURBSIDES Password Reset Request", html });
+
+  res.json({ success: true, message: "A temporary passcode has been emailed to you." });
 });
 
 // POST /api/auth/google
@@ -1294,7 +1363,7 @@ app.post("/api/auth/google", async (req, res) => {
 
   // Same approval checks as login
   if (userDoc.role === "vendor") {
-    const apps = await getCollection("vendorApplications");
+    const apps = await getCollection("vendor-applications");
     const appDoc = apps.find(a => a.email?.toLowerCase() === email.toLowerCase());
     if (appDoc && appDoc.status !== "approved") {
       return res.status(403).json({

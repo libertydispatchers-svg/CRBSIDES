@@ -24,5 +24,15 @@ service cloud.firestore {
       // Finance records are managed by cloud functions and read by admins
       allow read, write: if true;
     }
+
+    // Vendor applications collection
+    match /vendor-applications/{appId} {
+      allow read, write: if true;
+    }
+
+    // Vendors collection
+    match /vendors/{vendorId} {
+      allow read, write: if true;
+    }
   }
 }

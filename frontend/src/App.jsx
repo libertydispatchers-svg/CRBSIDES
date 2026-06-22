@@ -79,6 +79,7 @@ export default function App() {
   const [trackingOrderId, setTrackingOrderId] = useState('');
   const [searchedOrder, setSearchedOrder] = useState(null);
   const [trackingError, setTrackingError] = useState('');
+  const [trackingModalOrder, setTrackingModalOrder] = useState(null);
 
   // Vendor Onboarding Signup Form State
   const [vendorName, setVendorName] = useState('');
@@ -175,6 +176,10 @@ export default function App() {
   const [newCardNum, setNewCardNum] = useState('');
   const [newCardExpiry, setNewCardExpiry] = useState('');
   const [newCardCvc, setNewCardCvc] = useState('');
+  
+  // Customer Past Orders
+  const [customerOrders, setCustomerOrders] = useState([]);
+  const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
   
   // Simulated Live Support Chat State
   const [supportMessages, setSupportMessages] = useState([
@@ -310,6 +315,9 @@ export default function App() {
       const path = window.location.pathname;
       if (path === '/vendor-onboard') setActiveTab('vendor-onboard');
       else if (path === '/driver-onboard') setActiveTab('driver-onboard');
+      else if (path === '/privacy-policy') setActiveTab('privacy-policy');
+      else if (path === '/refund-policy') setActiveTab('refund-policy');
+      else if (path === '/terms-of-service') setActiveTab('terms-of-service');
       else if (path === '/admin') setActiveTab('admin');
       else if (path === '/vendor-portal') setActiveTab('vendor-portal');
       else if (path === '/driver-portal') setActiveTab('driver-portal');
@@ -327,6 +335,9 @@ export default function App() {
     const targetPath = 
       activeTab === 'vendor-onboard' ? '/vendor-onboard' :
       activeTab === 'driver-onboard' ? '/driver-onboard' :
+      activeTab === 'privacy-policy' ? '/privacy-policy' :
+      activeTab === 'refund-policy' ? '/refund-policy' :
+      activeTab === 'terms-of-service' ? '/terms-of-service' :
       activeTab === 'admin' ? '/admin' :
       activeTab === 'vendor-portal' ? '/vendor-portal' :
       activeTab === 'driver-portal' ? '/driver-portal' :
@@ -837,6 +848,37 @@ export default function App() {
       });
   };
 
+  const handleOpenTrackingModal = async (orderId) => {
+    setTrackingError('');
+    setTrackingModalOrder({ id: orderId, loading: true });
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/orders/shipday/${encodeURIComponent(orderId.trim())}`);
+      const data = res.ok ? await res.json() : null;
+      if (data && !data.error) {
+        setTrackingModalOrder(data);
+      } else {
+        throw new Error(data?.error || "Order tracking details not found in dispatch system.");
+      }
+    } catch (err) {
+      console.warn("API order tracking lookup failed, falling back to local database:", err.message);
+      // Fallback: look up in local orders list
+      let localOrder = customerOrders.find(o => o.id === orderId);
+      if (localOrder) {
+        setTrackingModalOrder({
+          ...localOrder,
+          eta: localOrder.eta || '15-20',
+          driverName: localOrder.driverName || (localOrder.driverId ? 'Courier' : 'Searching for courier...'),
+          vendor: localOrder.vendorName || localOrder.vendor || 'CURBSIDES Vendor',
+          status: localOrder.status || 'pending'
+        });
+      } else {
+        setTrackingModalOrder(null);
+        alert(err.message || "Failed to load order tracking details.");
+      }
+    }
+  };
+
   // Handle Vendor Onboarding Form
   const handleVendorOnboard = async (e) => {
     e.preventDefault();
@@ -856,14 +898,19 @@ export default function App() {
       email: vendorEmail.trim(),
       phone: vendorPhone.trim(),
       foodType: vendorFoodType.trim(),
-      borough: vendorBorough,
-      status: 'pending',
-      createdAt: new Date().toISOString()
+      borough: vendorBorough
     };
 
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      const { db, collection, addDoc } = await import('./firebase');
-      await addDoc(collection(db, 'vendor-applications'), newApp);
+      const res = await fetch(`${BACKEND_URL}/api/vendor-applications`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newApp)
+      });
+      if (!res.ok) {
+        throw new Error("API responded with an error");
+      }
       setVendorOnboardSuccess(true);
     } catch (err) {
       console.error("Failed to submit vendor application:", err);
@@ -1082,6 +1129,9 @@ export default function App() {
   const handleStaffLogout = () => {
     setIsStaffAuthenticated(false);
     setIsAdminAuthenticated(false);
+    if (customerUser && customerUser.email.toLowerCase() === 'libertydispatchers@gmail.com') {
+      setCustomerUser(null);
+    }
     setActiveTab('directory');
   };
 
@@ -1292,28 +1342,36 @@ export default function App() {
       return;
     }
     try {
-      const { auth, db, doc, setDoc, createUserWithEmailAndPassword } = await import('./firebase');
+      const { auth, createUserWithEmailAndPassword } = await import('./firebase');
       
       const userCredential = await createUserWithEmailAndPassword(auth, customerRegisterEmail.trim(), customerRegisterPassword);
       const user = userCredential.user;
       
       const role = customerRegisterEmail.trim().toLowerCase() === 'libertydispatchers@gmail.com' ? 'admin' : 'customer';
       
-      const newUserProfile = {
-        id: user.uid,
-        email: user.email,
-        name: customerRegisterName.trim().toUpperCase(),
-        role: role,
-        createdAt: new Date().toISOString(),
-        isVerified: false
-      };
-      
-      await setDoc(doc(db, 'users', user.uid), newUserProfile);
+      // Register with the backend Vercel API to save profile, generate verificationCode and send the Resend verification email
+      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+      const response = await fetch(`${BACKEND_URL}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: customerRegisterEmail.trim(),
+          password: customerRegisterPassword,
+          name: customerRegisterName.trim().toUpperCase(),
+          role: role,
+          uid: user.uid
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Failed to sync registration details with CURBSIDES operations backend.");
+      }
       
       setVerificationPendingEmail(customerRegisterEmail.trim());
       setCustomerRegisterName('');
       setCustomerRegisterEmail('');
-            setCustomerRegisterPhone('');
+      setCustomerRegisterPhone('');
       setCustomerRegisterPassword('');
     } catch (err) {
       setCustomerAuthError(err.message || "Registration failed. Please try again.");
@@ -1339,6 +1397,23 @@ export default function App() {
         return;
       }
       const user = userDoc.data();
+      
+      if (!user.isVerified) {
+        // Trigger resend-code backend API
+        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+        try {
+          await fetch(`${BACKEND_URL}/api/auth/resend-code`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: user.email })
+          });
+        } catch(e) {
+          console.error("Failed to trigger automatic OTP code resend:", e);
+        }
+        setVerificationPendingEmail(user.email);
+        setCustomerAuthError("Your account email is unverified. A new verification code has been sent to your email.");
+        return;
+      }
       
       setCustomerLoginEmail('');
       setCustomerLoginPassword('');
@@ -1454,6 +1529,107 @@ export default function App() {
   const handleCustomerLogout = () => {
     setCustomerUser(null);
     setCustomerActiveSubTab('profile');
+  };
+
+  const handleForgotCustomerPassword = async () => {
+    const email = prompt("Enter your email address to receive a password reset link:");
+    if (!email || !email.trim()) return;
+    try {
+      const { auth, sendPasswordResetEmail } = await import('./firebase');
+      await sendPasswordResetEmail(auth, email.trim());
+      alert("Password reset email sent! Please check your inbox.");
+    } catch (err) {
+      alert("Error sending password reset email: " + err.message);
+    }
+  };
+
+  const handleForgotDatabasePassword = async (role) => {
+    const email = prompt(`Enter the email address for your ${role} account:`);
+    if (!email || !email.trim()) return;
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim() })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message || "A temporary passcode has been emailed to you.");
+      } else {
+        alert(data.error || "Failed to process password reset request.");
+      }
+    } catch (err) {
+      alert("Error contacting the server.");
+    }
+  };
+
+  const handleSaveCustomerProfile = async (e) => {
+    if (e) e.preventDefault();
+    if (!customerUser || !customerUser.id) return;
+    try {
+      const { db, doc, setDoc } = await import('./firebase');
+      await setDoc(doc(db, 'users', customerUser.id), customerUser, { merge: true });
+      alert("Profile updated successfully!");
+    } catch (err) {
+      alert("Failed to update profile: " + err.message);
+    }
+  };
+
+  const fetchCustomerOrders = async () => {
+    if (!customerUser || !customerUser.email) return;
+    setIsLoadingCustomerOrders(true);
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/orders`);
+      if (res.ok) {
+        const data = await res.json();
+        // Filter orders matching this customer's email
+        const filtered = data.filter(order => 
+          (order.customerEmail && order.customerEmail.toLowerCase() === customerUser.email.toLowerCase()) ||
+          (order.email && order.email.toLowerCase() === customerUser.email.toLowerCase())
+        );
+        setCustomerOrders(filtered);
+      }
+    } catch (err) {
+      console.error("Failed to load customer orders:", err);
+    } finally {
+      setIsLoadingCustomerOrders(false);
+    }
+  };
+
+  const handleOpenSandboxCheckout = () => {
+    setIsCartOpen(false);
+    setShowSandboxCheckout(true);
+    setCheckoutError('');
+    if (customerUser) {
+      setCheckoutName(customerUser.name || '');
+      setCheckoutEmail(customerUser.email || '');
+      setCheckoutPhone(customerUser.phone || '');
+      if (customerUser.savedAddress) {
+        setCheckoutAddress(customerUser.savedAddress);
+      }
+    }
+    
+    // Request live location
+    if (navigator.geolocation) {
+      setCheckoutAddress("Locating your coordinates...");
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const { latitude, longitude } = position.coords;
+          setCheckoutAddress(`Live Location (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`);
+        },
+        (err) => {
+          console.error("Error getting geolocation:", err);
+          if (customerUser && customerUser.savedAddress) {
+            setCheckoutAddress(customerUser.savedAddress);
+          } else {
+            setCheckoutAddress('Lower East Side, New York, NY 10038');
+          }
+        },
+        { enableHighAccuracy: true, timeout: 8000 }
+      );
+    }
   };
 
   const handleDeleteCustomerAccount = () => {
@@ -2067,6 +2243,366 @@ export default function App() {
       {/* Main Grid: Mobile Tabs or Dual Column Desktop Grid */}
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 overflow-hidden">
         
+        {/* Driver Onboarding Page */}
+        {activeTab === 'driver-onboard' && (
+          <div className="lg:col-span-12 p-6 max-w-xl mx-auto w-full overflow-y-auto">
+            <div className="border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
+              <div className="text-center">
+                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded animate-pulse">
+                  Partner Program
+                </span>
+                <h2 className="text-3xl font-extrabold uppercase text-white font-heading mt-3">Apply as Driver</h2>
+                <p className="text-xs text-slate-400 mt-1">Register your courier profile to start claiming delivery fares in NYC.</p>
+              </div>
+
+              {driverOnboardSuccess ? (
+                <div className="border border-emerald-500/20 bg-emerald-950/10 p-6 rounded-xl text-center space-y-4">
+                  <p className="text-sm text-emerald-400 font-bold uppercase tracking-wider">
+                    Courier Application Submitted Successfully!
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Your profile is now pending administrative approval. You will receive an email verification link shortly.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab('directory')}
+                    className="px-4 py-2 border border-white rounded text-white text-[10px] font-bold uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                  >
+                    Back to Home
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleDriverOnboard} className="space-y-4">
+                  {driverOnboardError && (
+                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase rounded text-center">
+                      {driverOnboardError}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Carlos Rivera"
+                      value={driverNameInput}
+                      onChange={(e) => setDriverNameInput(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Email</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="carlos@example.com"
+                      value={driverEmailInput}
+                      onChange={(e) => setDriverEmailInput(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="(555) 000-0000"
+                      value={driverPhoneInput}
+                      onChange={(e) => setDriverPhoneInput(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Vehicle Type</label>
+                      <select
+                        value={driverVehicle}
+                        onChange={(e) => setDriverVehicle(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none appearance-none cursor-pointer"
+                      >
+                        <option value="bike">E-Bike / Bicycle</option>
+                        <option value="scooter">Scooter</option>
+                        <option value="car">Car / Sedan</option>
+                        <option value="van">Cargo Van</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Borough</label>
+                      <select
+                        value={driverBoroughsInput[0] || 'Manhattan'}
+                        onChange={(e) => setDriverBoroughsInput([e.target.value])}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none appearance-none cursor-pointer"
+                      >
+                        <option value="Manhattan">Manhattan</option>
+                        <option value="Brooklyn">Brooklyn</option>
+                        <option value="Queens">Queens</option>
+                        <option value="Bronx">Bronx</option>
+                        <option value="Staten Island">Staten Island</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('directory')}
+                      className="flex-1 py-3 border border-white/20 rounded-xl text-white font-bold text-[11px] uppercase hover:bg-white/10 transition-all cursor-pointer font-heading"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-3 border border-white rounded-xl bg-white text-black font-bold text-[11px] uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Submit Application
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Vendor Onboarding Page */}
+        {activeTab === 'vendor-onboard' && (
+          <div className="lg:col-span-12 p-6 max-w-xl mx-auto w-full overflow-y-auto">
+            <div className="border-2 border-white rounded-2xl p-6 bg-black shadow-2xl space-y-6">
+              <div className="text-center">
+                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded animate-pulse">
+                  Merchant Desk
+                </span>
+                <h2 className="text-3xl font-extrabold uppercase text-white font-heading mt-3">Register Vendor</h2>
+                <p className="text-xs text-slate-400 mt-1">Register your food truck or business profile to start selling on Curbsides.</p>
+              </div>
+
+              {vendorOnboardSuccess ? (
+                <div className="border border-emerald-500/20 bg-emerald-950/10 p-6 rounded-xl text-center space-y-4">
+                  <p className="text-sm text-emerald-400 font-bold uppercase tracking-wider">
+                    Vendor Application Filed Successfully!
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Your registration request is pending review by the Curbsides transit administration.
+                  </p>
+                  <button
+                    onClick={() => setActiveTab('directory')}
+                    className="px-4 py-2 border border-white rounded text-white text-[10px] font-bold uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                  >
+                    Back to Home
+                  </button>
+                </div>
+              ) : (
+                <form onSubmit={handleVendorOnboard} className="space-y-4">
+                  {vendorOnboardError && (
+                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase rounded text-center">
+                      {vendorOnboardError}
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Truck / Business Name</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Halal Cart Kings"
+                      value={vendorName}
+                      onChange={(e) => setVendorName(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Email</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="email@example.com"
+                      value={vendorEmail}
+                      onChange={(e) => setVendorEmail(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
+                    <input
+                      type="tel"
+                      required
+                      placeholder="(555) 000-0000"
+                      value={vendorPhone}
+                      onChange={(e) => setVendorPhone(e.target.value)}
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Food Type</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. Tacos, Burgers"
+                        value={vendorFoodType}
+                        onChange={(e) => setVendorFoodType(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Borough</label>
+                      <select
+                        value={vendorBorough}
+                        onChange={(e) => setVendorBorough(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none appearance-none cursor-pointer"
+                      >
+                        <option value="Manhattan">Manhattan</option>
+                        <option value="Brooklyn">Brooklyn</option>
+                        <option value="Queens">Queens</option>
+                        <option value="Bronx">Bronx</option>
+                        <option value="Staten Island">Staten Island</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveTab('directory')}
+                      className="flex-1 py-3 border border-white/20 rounded-xl text-white font-bold text-[11px] uppercase hover:bg-white/10 transition-all cursor-pointer font-heading"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="flex-1 py-3 border border-white rounded-xl bg-white text-black font-bold text-[11px] uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                    >
+                      Submit Registration
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Privacy Policy Page */}
+        {activeTab === 'privacy-policy' && (
+          <div className="lg:col-span-12 p-6 max-w-2xl mx-auto w-full overflow-y-auto">
+            <div className="border-2 border-white rounded-2xl p-8 bg-black shadow-2xl space-y-6">
+              <div>
+                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded">
+                  Legal
+                </span>
+                <h2 className="text-3xl font-extrabold uppercase text-white font-heading mt-3">Privacy Policy</h2>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">Effective Date: June 22, 2026</p>
+              </div>
+
+              <div className="text-xs text-slate-300 space-y-4 leading-relaxed font-body border-t border-white/15 pt-6">
+                <p>
+                  At Curbsides, we prioritize the protection and security of your personal data. This Privacy Policy details how we collect, use, and safeguard information across our multi-vendor street food network and courier coordination system.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">1. Information Collection & Location Tracking</h4>
+                <p>
+                  To successfully coordinate deliveries, our companion application collects real-time geolocation coordinates from active couriers and order-tracking customers. Location tracking is strictly activated only when an order is in progress or when a driver is online in the delivery queue. We do not track background locations without active transit tasks.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">2. Usage of Collected Information</h4>
+                <p>
+                  We utilize your data solely to manage dispatch queues, display real-time coordinates on the live tracking map, process payments, and verify mobile authentication. We enforce strict data boundaries; your information will never be rented, leased, or sold to third-party entities for advertising or data brokers.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">3. Data Retention & Security Rules</h4>
+                <p>
+                  All transactional database logs, billing histories, and verification profiles are stored in encrypted Cloud Firestore instances protected by strict user access rules. Sensitive information, including service-account keys and dispatch credentials, is isolated on secure backend environments.
+                </p>
+              </div>
+
+              <div className="pt-6 border-t border-white/15 flex justify-end">
+                <button
+                  onClick={() => setActiveTab('directory')}
+                  className="px-6 py-3 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                >
+                  Back to Home
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Refund Policy Page */}
+        {activeTab === 'refund-policy' && (
+          <div className="lg:col-span-12 p-6 max-w-2xl mx-auto w-full overflow-y-auto">
+            <div className="border-2 border-white rounded-2xl p-8 bg-black shadow-2xl space-y-6">
+              <div>
+                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded">
+                  Legal
+                </span>
+                <h2 className="text-3xl font-extrabold uppercase text-white font-heading mt-3">Refund Policy</h2>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">Effective Date: June 22, 2026</p>
+              </div>
+
+              <div className="text-xs text-slate-300 space-y-4 leading-relaxed font-body border-t border-white/15 pt-6">
+                <p>
+                  Curbsides facilitates real-time transactions between independent food trucks (vendors) and customers. Because all menu items are freshly prepared to order by local street merchants, the following guidelines govern refund eligibility.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">1. Vendor Discretion</h4>
+                <p>
+                  Refund requests related to food preparation quality, ingredient errors, or packaging issues are handled at the sole discretion of the specific vendor who fulfilled the order. Customers are encouraged to contact the merchant directly via the contact information listed on the transaction ticket.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">2. Delivery Fares and Service Fees</h4>
+                <p>
+                  Fares paid for delivery services are fully paid out to the active courier upon order completion and are non-refundable. Platform convenience fees are used to maintain dispatch services, live mapping servers, and SMS verification queues, and are similarly non-refundable.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">3. Compensation for Non-Delivery</h4>
+                <p>
+                  If an order is not successfully dispatched or if a courier fails to complete the delivery task, customers will be issued a full refund to their initial payment method or equivalent platform credits.
+                </p>
+              </div>
+
+              <div className="pt-6 border-t border-white/15 flex justify-end">
+                <button
+                  onClick={() => setActiveTab('directory')}
+                  className="px-6 py-3 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                >
+                  Back to Home
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Terms of Service Page */}
+        {activeTab === 'terms-of-service' && (
+          <div className="lg:col-span-12 p-6 max-w-2xl mx-auto w-full overflow-y-auto">
+            <div className="border-2 border-white rounded-2xl p-8 bg-black shadow-2xl space-y-6">
+              <div>
+                <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded">
+                  Legal
+                </span>
+                <h2 className="text-3xl font-extrabold uppercase text-white font-heading mt-3">Terms of Service</h2>
+                <p className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">Effective Date: June 22, 2026</p>
+              </div>
+
+              <div className="text-xs text-slate-300 space-y-4 leading-relaxed font-body border-t border-white/15 pt-6">
+                <p>
+                  Welcome to Curbsides. By accessing our platform, website, or mobile application, you agree to comply with and be bound by the following Terms of Service.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">1. Merchant & Dasher Audits</h4>
+                <p>
+                  To maintain absolute quality and safety across our multi-vendor network, Curbsides strictly vets all registrants. We occasionally perform unannounced audit orders and test deliveries to ensure vendors and dashers are adhering to sanitization codes, transit rules, and premium dispatch benchmarks.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">2. Account Responsibility</h4>
+                <p>
+                  Users must provide accurate, current, and complete details during email or SSO registration. You are solely responsible for maintaining the confidentiality of your login passwords and OTP verification passcodes. Under no circumstance should courier accounts be shared or transferred.
+                </p>
+                <h4 className="text-white font-bold uppercase tracking-wider mt-4">3. Platform Modifications</h4>
+                <p>
+                  We reserve the right to modify menu prices, delivery zones, service charges, and system features at any time. Active route coordinates shown on the Live Street Tracker are projections and may vary due to urban traffic patterns or street conditions.
+                </p>
+              </div>
+
+              <div className="pt-6 border-t border-white/15 flex justify-end">
+                <button
+                  onClick={() => setActiveTab('directory')}
+                  className="px-6 py-3 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                >
+                  Back to Home
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Customer Account Hub: Profile, Cards, Chat, Order tracking */}
         {activeTab === 'account' && (
           <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
@@ -2132,6 +2668,16 @@ export default function App() {
                           onChange={(e) => setCustomerLoginPassword(e.target.value)}
                           className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
                         />
+                      </div>
+
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={handleForgotCustomerPassword}
+                          className="text-[10px] font-bold text-slate-400 hover:text-white uppercase tracking-wider transition-colors cursor-pointer bg-transparent border-none outline-none"
+                        >
+                          Forgot Password?
+                        </button>
                       </div>
 
                       <button
@@ -2294,46 +2840,25 @@ export default function App() {
                     <p className="text-xs text-slate-400 mt-0.5">{customerUser.email} &bull; {customerUser.phone}</p>
                   </div>
                   
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => setCustomerActiveSubTab('profile')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer ${
                         customerActiveSubTab === 'profile' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                       }`}
                     >
                       Profile & Wallet
                     </button>
                     <button
-                      onClick={() => setCustomerActiveSubTab('orders')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                      onClick={() => {
+                        setCustomerActiveSubTab('orders');
+                        fetchCustomerOrders();
+                      }}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer ${
                         customerActiveSubTab === 'orders' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                       }`}
                     >
                       Order History
-                    </button>
-                    <button
-                      onClick={() => setCustomerActiveSubTab('track')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        customerActiveSubTab === 'track' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Track Order
-                    </button>
-                    <button
-                      onClick={() => setCustomerActiveSubTab('partner')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        customerActiveSubTab === 'partner' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Become a Partner
-                    </button>
-                    <button
-                      onClick={() => setCustomerActiveSubTab('chat')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        customerActiveSubTab === 'chat' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Support Chat
                     </button>
                     <button
                       onClick={handleCustomerLogout}
@@ -2356,7 +2881,7 @@ export default function App() {
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
                             <input
                               type="text"
-                              value={customerUser.name}
+                              value={customerUser.name || ''}
                               onChange={(e) => setCustomerUser({ ...customerUser, name: e.target.value.toUpperCase() })}
                               className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
                             />
@@ -2365,7 +2890,7 @@ export default function App() {
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
                             <input
                               type="email"
-                              value={customerUser.email}
+                              value={customerUser.email || ''}
                               onChange={(e) => setCustomerUser({ ...customerUser, email: e.target.value })}
                               className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
                             />
@@ -2374,10 +2899,29 @@ export default function App() {
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Phone Number</label>
                             <input
                               type="text"
-                              value={customerUser.phone}
+                              value={customerUser.phone || ''}
                               onChange={(e) => setCustomerUser({ ...customerUser, phone: e.target.value })}
                               className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
                             />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Saved Delivery Address</label>
+                            <input
+                              type="text"
+                              value={customerUser.savedAddress || ''}
+                              onChange={(e) => setCustomerUser({ ...customerUser, savedAddress: e.target.value })}
+                              className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-sans"
+                              placeholder="e.g. 123 Houston St, New York, NY 10002"
+                            />
+                          </div>
+                          <div className="pt-2">
+                            <button
+                              type="button"
+                              onClick={handleSaveCustomerProfile}
+                              className="w-full py-2 border-2 border-white rounded-lg bg-white text-black font-extrabold text-[10px] uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                            >
+                              Save Changes
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -2506,47 +3050,71 @@ export default function App() {
                               <th className="p-3 text-right">Action</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-white/10 text-slate-300">
-                            <tr className="hover:bg-zinc-900 transition-colors">
-                              <td className="p-3 font-bold text-white font-mono uppercase">shopify-1001</td>
-                              <td className="p-3 font-semibold uppercase">Korean BBQ Taco Truck</td>
-                              <td className="p-3 text-slate-500">06/19/2026</td>
-                              <td className="p-3">3x Bulgogi Beef Taco, 1x Kimchi Fries</td>
-                              <td className="p-3 font-mono font-semibold">$22.00</td>
-                              <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">Delivered</td>
-                              <td className="p-3 text-right">
-                                <button
-                                  onClick={() => {
-                                    setTrackingOrderId('shopify-1001');
-                                    setCustomerActiveSubTab('track');
-                                    handleSearchOrder(null, 'shopify-1001');
-                                  }}
-                                  className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                                >
-                                  Track Details
-                                </button>
-                              </td>
-                            </tr>
-                            <tr className="hover:bg-zinc-900 transition-colors">
-                              <td className="p-3 font-bold text-white font-mono uppercase">shopify-1002</td>
-                              <td className="p-3 font-semibold uppercase">Empanada Guy</td>
-                              <td className="p-3 text-slate-500">06/18/2026</td>
-                              <td className="p-3">2x Beef & Cheese, 2x Chipotle Chicken</td>
-                              <td className="p-3 font-mono font-semibold">$15.00</td>
-                              <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">Delivered</td>
-                              <td className="p-3 text-right">
-                                <button
-                                  onClick={() => {
-                                    setTrackingOrderId('shopify-1002');
-                                    setCustomerActiveSubTab('track');
-                                    handleSearchOrder(null, 'shopify-1002');
-                                  }}
-                                  className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                                >
-                                  Track Details
-                                </button>
-                              </td>
-                            </tr>
+                           <tbody className="divide-y divide-white/10 text-slate-300">
+                            {isLoadingCustomerOrders ? (
+                              <tr>
+                                <td colSpan="7" className="p-4 text-center text-slate-500 italic animate-pulse">Loading orders...</td>
+                              </tr>
+                            ) : customerOrders.length === 0 ? (
+                              <>
+                                {/* Default demo items */}
+                                <tr className="hover:bg-zinc-900 transition-colors">
+                                  <td className="p-3 font-bold text-white font-mono uppercase font-semibold">shopify-1001</td>
+                                  <td className="p-3 font-semibold uppercase">Korean BBQ Taco Truck</td>
+                                  <td className="p-3 text-slate-500">06/19/2026</td>
+                                  <td className="p-3">3x Bulgogi Beef Taco, 1x Kimchi Fries</td>
+                                  <td className="p-3 font-mono font-semibold">$22.00</td>
+                                  <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">Delivered</td>
+                                  <td className="p-3 text-right">
+                                    <button
+                                      onClick={() => handleOpenTrackingModal('shopify-1001')}
+                                      className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                    >
+                                      Track Details
+                                    </button>
+                                  </td>
+                                </tr>
+                                <tr className="hover:bg-zinc-900 transition-colors">
+                                  <td className="p-3 font-bold text-white font-mono uppercase font-semibold">shopify-1002</td>
+                                  <td className="p-3 font-semibold uppercase">Empanada Guy</td>
+                                  <td className="p-3 text-slate-500">06/18/2026</td>
+                                  <td className="p-3">2x Beef & Cheese, 2x Chipotle Chicken</td>
+                                  <td className="p-3 font-mono font-semibold">$15.00</td>
+                                  <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">Delivered</td>
+                                  <td className="p-3 text-right">
+                                    <button
+                                      onClick={() => handleOpenTrackingModal('shopify-1002')}
+                                      className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                    >
+                                      Track Details
+                                    </button>
+                                  </td>
+                                </tr>
+                              </>
+                            ) : (
+                              customerOrders.map(order => (
+                                <tr key={order.id} className="hover:bg-zinc-900 transition-colors">
+                                  <td className="p-3 font-bold text-white font-mono uppercase font-semibold">{order.id}</td>
+                                  <td className="p-3 font-semibold uppercase">{order.vendorName || order.vendor || 'CURBSIDES Vendor'}</td>
+                                  <td className="p-3 text-slate-500">{order.createdAt ? new Date(order.createdAt).toLocaleDateString() : '06/22/2026'}</td>
+                                  <td className="p-3">
+                                    {order.items && order.items.length > 0
+                                      ? order.items.map(i => `${i.quantity || 1}x ${i.title || i.name}`).join(', ')
+                                      : 'Street Food Selection'}
+                                  </td>
+                                  <td className="p-3 font-mono font-semibold">${(order.total || 0).toFixed(2)}</td>
+                                  <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">{order.status}</td>
+                                  <td className="p-3 text-right">
+                                    <button
+                                      onClick={() => handleOpenTrackingModal(order.id)}
+                                      className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                                    >
+                                      Track Details
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                         </table>
                       </div>
@@ -3011,6 +3579,16 @@ export default function App() {
                         onChange={(e) => setVendorLoginPasscode(e.target.value)}
                         className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
                       />
+                    </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleForgotDatabasePassword('vendor')}
+                        className="text-[10px] font-bold text-slate-400 hover:text-white uppercase tracking-wider transition-colors cursor-pointer bg-transparent border-none outline-none"
+                      >
+                        Forgot Passcode?
+                      </button>
                     </div>
 
                     <button
@@ -3950,6 +4528,16 @@ export default function App() {
                         className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
                       />
                     </div>
+
+                    <div className="flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => handleForgotDatabasePassword('driver')}
+                        className="text-[10px] font-bold text-slate-400 hover:text-white uppercase tracking-wider transition-colors cursor-pointer bg-transparent border-none outline-none"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
                     <button
                       type="submit"
                       className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
@@ -4711,10 +5299,7 @@ export default function App() {
                             Integrations
                           </button>
                           <button
-                            onClick={() => {
-                              setIsAdminAuthenticated(false);
-                              setActiveTab('directory');
-                            }}
+                            onClick={handleStaffLogout}
                             className="px-3 py-1.5 border border-rose-500/50 text-rose-400 hover:bg-rose-500/10 rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ml-auto"
                           >
                             Sign Out
@@ -5434,7 +6019,7 @@ export default function App() {
         )}
 
         {/* Directory Tab View */}
-        {activeTab !== 'track' && activeTab !== 'admin' && activeTab !== 'vendor-onboard' && activeTab !== 'vendor-portal' && activeTab !== 'account' && (
+        {activeTab !== 'track' && activeTab !== 'admin' && activeTab !== 'vendor-onboard' && activeTab !== 'driver-onboard' && activeTab !== 'privacy-policy' && activeTab !== 'refund-policy' && activeTab !== 'terms-of-service' && activeTab !== 'vendor-portal' && activeTab !== 'driver-portal' && activeTab !== 'account' && (
           <>
             {/* Left / Main Section: Directory & Outlines */}
             <div className={`lg:col-span-7 flex flex-col border-r-2 border-white overflow-y-auto ${
@@ -5995,10 +6580,7 @@ export default function App() {
               )}
 
               <button
-                onClick={() => {
-                  setIsCartOpen(false);
-                  setShowSandboxCheckout(true);
-                }}
+                onClick={handleOpenSandboxCheckout}
                 disabled={cart.length === 0 || isCheckoutLoading}
                 className="w-full py-4 border-2 border-white rounded-xl bg-white text-black font-extrabold text-sm uppercase tracking-widest hover:bg-black hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer font-heading"
               >
@@ -6074,21 +6656,44 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Delivery Location (NYC Zone)</label>
-                <select
-                  value={checkoutAddress}
-                  onChange={(e) => setCheckoutAddress(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none capitalize font-sans"
-                >
-                  <option value="Lower East Side, New York, NY 10038">Lower East Side (Manhattan)</option>
-                  <option value="East Village, New York, NY 10003">East Village (Manhattan)</option>
-                  <option value="Brooklyn Heights, Brooklyn, NY 11201">Brooklyn Heights (Brooklyn)</option>
-                  <option value="Williamsburg, Brooklyn, NY 11211">Williamsburg (Brooklyn)</option>
-                  <option value="Harlem, New York, NY 10027">Harlem (Manhattan)</option>
-                  <option value="Astoria, Queens, NY 11102">Astoria (Queens)</option>
-                  <option value="Flushing, Queens, NY 11354">Flushing (Queens)</option>
-                  <option value="Dumbo, Brooklyn, NY 11201">Dumbo (Brooklyn)</option>
-                </select>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-heading">Delivery Location</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    required
+                    placeholder="e.g. Live Location (40.7150, -73.9843)"
+                    value={checkoutAddress}
+                    onChange={(e) => setCheckoutAddress(e.target.value)}
+                    className="flex-1 px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (navigator.geolocation) {
+                        setCheckoutAddress("Locating your coordinates...");
+                        navigator.geolocation.getCurrentPosition(
+                          (position) => {
+                            const { latitude, longitude } = position.coords;
+                            setCheckoutAddress(`Live Location (${latitude.toFixed(5)}, ${longitude.toFixed(5)})`);
+                          },
+                          (err) => {
+                            console.error("Error getting geolocation:", err);
+                            if (customerUser && customerUser.savedAddress) {
+                              setCheckoutAddress(customerUser.savedAddress);
+                            } else {
+                              setCheckoutAddress('Lower East Side, New York, NY 10038');
+                            }
+                          },
+                          { enableHighAccuracy: true, timeout: 8000 }
+                        );
+                      }
+                    }}
+                    className="px-4 py-3 border-2 border-white rounded-xl bg-zinc-950 text-white font-extrabold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                    title="Get current GPS coordinates"
+                  >
+                    📍 Live
+                  </button>
+                </div>
               </div>
 
               <div className="pt-2">
@@ -6107,6 +6712,121 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Live Order Tracking Details */}
+      {trackingModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+          <div className="w-full max-w-md border-2 border-white bg-black rounded-2xl p-6 md:p-8 shadow-2xl relative space-y-6">
+            <button 
+              onClick={() => setTrackingModalOrder(null)}
+              className="absolute top-4 right-4 p-2 border-2 border-white rounded-lg hover:bg-white hover:text-black transition-all cursor-pointer text-white"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            <div className="text-center space-y-1">
+              <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                Live Transit status
+              </span>
+              <h3 className="text-xl font-bold uppercase text-white font-heading mt-2 font-heading">Transit Tracking</h3>
+              <p className="text-xs text-slate-400">Order ID: <span className="font-mono font-bold text-white uppercase">{trackingModalOrder.id}</span></p>
+            </div>
+
+            {trackingModalOrder.loading ? (
+              <div className="py-8 text-center text-slate-500 italic animate-pulse">
+                Fetching real-time tracking data...
+              </div>
+            ) : (
+              <div className="space-y-5 text-white font-sans">
+                <div className="flex justify-between items-center border-b border-white/20 pb-4">
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-bold uppercase">Vendor</span>
+                    <span className="text-xs text-white font-bold uppercase">{trackingModalOrder.vendor || trackingModalOrder.vendorName}</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] text-slate-400 block font-bold uppercase">Est. Arrival</span>
+                    <span className="text-white font-bold">{trackingModalOrder.eta || '15-20'} Min</span>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-bold uppercase">
+                    <span>Delivery Status</span>
+                    <span className="text-emerald-400 font-bold uppercase">{trackingModalOrder.status}</span>
+                  </div>
+                  <div className="h-2 bg-slate-900 border border-white/20 rounded-full overflow-hidden flex">
+                    <span 
+                      className="h-full bg-white transition-all duration-500" 
+                      style={{ 
+                        width: trackingModalOrder.status?.toLowerCase() === 'delivered' ? '100%' : 
+                               trackingModalOrder.status?.toLowerCase() === 'on the way' || trackingModalOrder.status?.toLowerCase() === 'picked_up' || trackingModalOrder.status?.toLowerCase() === 'started_delivery' ? '80%' : 
+                               trackingModalOrder.status?.toLowerCase() === 'driver assigned' || trackingModalOrder.status?.toLowerCase() === 'accepted' ? '60%' : 
+                               trackingModalOrder.status?.toLowerCase() === 'vendor preparing food' || trackingModalOrder.status?.toLowerCase() === 'ready_for_pickup' ? '40%' : '20%' 
+                      }}
+                    ></span>
+                  </div>
+                </div>
+
+                <div className="border border-white/10 p-3 rounded-xl bg-zinc-950/40 text-xs">
+                  <span className="text-slate-400 block mb-1">Courier Assigned</span>
+                  <span className="text-white font-bold">{trackingModalOrder.driverName || 'Searching for Courier...'}</span>
+                </div>
+
+                {/* Pickup and Destination Details */}
+                {(trackingModalOrder.vendorAddress || trackingModalOrder.customerAddress) && (
+                  <div className="border border-white/15 p-4 rounded-xl bg-zinc-950/20 text-xs space-y-3">
+                    {trackingModalOrder.vendorAddress && (
+                      <div className="flex gap-2">
+                        <MapPin className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="text-slate-500 font-bold uppercase text-[9px] block">Pickup Location</span>
+                          <span className="text-white font-semibold">{trackingModalOrder.vendorAddress}</span>
+                        </div>
+                      </div>
+                    )}
+                    {trackingModalOrder.vendorAddress && trackingModalOrder.customerAddress && (
+                      <div className="border-t border-white/10 my-2"></div>
+                    )}
+                    {trackingModalOrder.customerAddress && (
+                      <div className="flex gap-2">
+                        <Navigation className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="text-slate-500 font-bold uppercase text-[9px] block">Destination</span>
+                          <span className="text-white font-semibold">{trackingModalOrder.customerAddress}</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Shipday Live GPS Map Tracker */}
+                {trackingModalOrder.trackingLink && (
+                  <a 
+                    href={trackingModalOrder.trackingLink} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="flex items-center justify-center gap-2 w-full py-3 bg-white text-black font-extrabold text-xs uppercase rounded-xl border border-white hover:bg-black hover:text-white transition-all text-center tracking-wider font-heading cursor-pointer"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Open Live GPS Tracking Map
+                  </a>
+                )}
+
+                {/* Call Courier Option */}
+                {trackingModalOrder.driverPhone && (
+                  <a 
+                    href={`tel:${trackingModalOrder.driverPhone}`} 
+                    className="flex items-center justify-center gap-2 w-full py-2.5 bg-transparent text-white font-extrabold text-xs uppercase rounded-xl border border-white/20 hover:border-white transition-all text-center tracking-wider font-heading cursor-pointer"
+                  >
+                    <Phone className="w-3.5 h-3.5" />
+                    Contact Courier ({trackingModalOrder.driverPhone})
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -6244,12 +6964,22 @@ export default function App() {
         <div className="flex flex-col md:flex-row items-center gap-6">
           <span className="font-bold text-white">&copy; 2026 CURBSIDES.</span>
           <div className="flex flex-wrap justify-center gap-4 text-[10px] md:text-xs">
-            <button onClick={() => setActiveTab('directory')} className="hover:text-white transition-colors cursor-pointer uppercase font-bold tracking-widest">Apply as Driver</button>
-            <button onClick={() => setActiveTab('directory')} className="hover:text-white transition-colors cursor-pointer uppercase font-bold tracking-widest">Apply as Vendor</button>
-            <a href="#" className="hover:text-white transition-colors uppercase tracking-widest">Privacy Policy</a>
-            <a href="#" className="hover:text-white transition-colors uppercase tracking-widest">Refund Policy</a>
+            <button onClick={() => setActiveTab('driver-onboard')} className="hover:text-white transition-colors cursor-pointer uppercase font-bold tracking-widest">Apply as Driver</button>
+            <button onClick={() => setActiveTab('vendor-onboard')} className="hover:text-white transition-colors cursor-pointer uppercase font-bold tracking-widest">Apply as Vendor</button>
             <button 
-              onClick={() => alert("TERMS OF SERVICE\n\nWelcome to Curbsides.\n\nPlease note that we strictly vet our vendors and dashers. We occasionally test orders to ensure vendors are providing the absolute best service. By using this platform, you agree that you understand what you are ordering.")}
+              onClick={() => setActiveTab('privacy-policy')}
+              className="hover:text-white transition-colors cursor-pointer uppercase tracking-widest text-left"
+            >
+              Privacy Policy
+            </button>
+            <button 
+              onClick={() => setActiveTab('refund-policy')}
+              className="hover:text-white transition-colors cursor-pointer uppercase tracking-widest text-left"
+            >
+              Refund Policy
+            </button>
+            <button 
+              onClick={() => setActiveTab('terms-of-service')}
               className="hover:text-white transition-colors cursor-pointer uppercase tracking-widest text-left"
             >
               Terms of Service
