@@ -109,6 +109,9 @@ export default function App() {
   const [gpsStatus, setGpsStatus] = useState('');
   const [gpsCoords, setGpsCoords] = useState(null);
 
+  // Admin Review Modal
+  const [vendorReviewModal, setVendorReviewModal] = useState(null);
+
   // Admin & Staff View State
   const [adminPassword, setAdminPassword] = useState('');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
@@ -672,6 +675,16 @@ export default function App() {
           };
           await setDoc(userDocRef, newProfile);
           profileData = { ...newProfile, id: user.uid };
+          
+          // Notify admin of new user signup
+          try {
+            const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+            fetch(`${BACKEND_URL}/api/notify-admin/user-signup`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newProfile)
+            }).catch(e => console.error(e));
+          } catch(e) {}
         }
 
         // Override role for admin email
@@ -937,6 +950,17 @@ export default function App() {
       
       await addDoc(collection(db, 'vendor-applications'), applicationData);
       setVendorOnboardSuccess(true);
+      
+      // Notify Admin
+      try {
+        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+        fetch(`${BACKEND_URL}/api/notify-admin/vendor-app`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(applicationData)
+        }).catch(e => console.error(e));
+      } catch(e) {}
+      
     } catch (err) {
       console.error("Failed to submit vendor application natively:", err);
       setVendorOnboardError("Failed to submit application. Please try again.");
@@ -1003,81 +1027,35 @@ export default function App() {
   };
 
   const handleApproveVendor = async (app) => {
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-
-    // Persist approval to database via Node Server to trigger Welcome Email
     try {
-      await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved' })
-      });
+      const { db, doc, updateDoc, setDoc } = await import('./firebase');
+      
+      // Update application status to approved
+      await updateDoc(doc(db, 'vendor-applications', app.id), { status: 'approved' });
 
-      // Automatically add to local vendors list (which creates the vendor doc)
+      // Create vendor profile in the vendors collection so they can access the Vendor Portal
       const newVendorId = 'vendor-' + Date.now();
       const newVendor = {
         id: newVendorId,
         name: app.name,
         email: app.email,
-        borough: app.borough || 'Manhattan, NYC',
-        isOpen: true,
+        phone: app.phone || '',
+        borough: app.borough || 'Manhattan',
+        location: app.location || '',
+        foodType: app.foodType || '',
+        isOpen: false, // Default closed until they open in portal
         rating: 5.0,
-        tags: ['Approved', 'Street Food'],
-        items: []
+        tags: ['Approved', 'Street Food', app.foodType].filter(Boolean),
+        items: [] // Empty menu to start
       };
       
-      const { db, doc, setDoc } = await import('./firebase');
       await setDoc(doc(db, 'vendors', newVendorId), newVendor);
-
-    } catch (err) {
-      console.error("Failed to persist vendor application approval or vendor creation:", err);
-    }
-
-    const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token');
-    const shopifyConfig = localStorage.getItem('curbsides_shopify_config');
-
-    let shopDomain = "";
-    if (shopifyConfig) {
-      try {
-        shopDomain = JSON.parse(shopifyConfig).domain;
-      } catch(e) {}
-    }
-    
-    if (shopifyAdminToken && shopDomain) {
-      addShopifyApiLog('CREATING PRODUCT', `Initiated Shopify product creation for vendor "${app.name}"...`, 'text-white');
       
-      try {
-        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-        const response = await fetch(`${BACKEND_URL}/api/shopify/create-product`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            shop: shopDomain,
-            admin_token: shopifyAdminToken,
-            title: `${app.foodType} Starter Plate`,
-            vendorName: app.name,
-            borough: app.borough,
-            foodType: app.foodType,
-            price: "12.00"
-          })
-        });
-        
-        const resData = await response.json();
-        if (resData.success) {
-          addShopifyApiLog('PRODUCT CREATED', `Starter product "${app.foodType} Starter Plate" (ID: ${resData.product.id}) created for "${app.name}".`, 'text-emerald-400');
-          alert(`Successfully approved vendor and created their starter product in Shopify!`);
-        } else {
-          throw new Error(resData.error || "Unknown API error");
-        }
-      } catch (err) {
-        console.error("Failed to create product in Shopify:", err);
-        addShopifyApiLog('PRODUCT ERROR', `Failed to create Shopify product for "${app.name}": ${err.message}`, 'text-amber-500');
-        alert(`Vendor application approved, but failed to sync to Shopify: ${err.message}`);
-      }
-    } else {
-      alert(`Email invitation sent to: ${app.email}. Connect them as staff in Shopify Settings. (Shopify integration not active - skipping product creation)`);
+      alert(`Successfully approved ${app.name} for the Vendor Portal!`);
+      setVendorReviewModal(null);
+    } catch (err) {
+      console.error("Failed to approve vendor natively:", err);
+      alert("Failed to approve vendor. Please try again.");
     }
   };
 
@@ -5621,7 +5599,7 @@ export default function App() {
                             <th className="py-2.5">Borough</th>
                             <th className="py-2.5">Food Type</th>
                             <th className="py-2.5">Status</th>
-                            <th className="py-2.5 text-right">Shopify Invitation</th>
+                            <th className="py-2.5 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/10">
@@ -5634,11 +5612,10 @@ export default function App() {
                               <td className="py-3 font-semibold uppercase">{app.foodType}</td>
                               <td className="py-3 uppercase text-[10px] font-bold text-amber-400">{app.status}</td>
                               <td className="py-3 text-right">
-                                <button
-                                  onClick={() => handleApproveVendor(app)}
-                                  className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all"
+                                  onClick={() => app.status !== 'approved' ? setVendorReviewModal(app) : null}
+                                  className={`px-2 py-1 border border-white rounded text-[10px] font-bold uppercase transition-all ${app.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 cursor-default' : 'bg-white text-black hover:bg-black hover:text-white cursor-pointer'}`}
                                 >
-                                  {app.status === 'approved' ? 'Invited ✓' : 'Invite Staff'}
+                                  {app.status === 'approved' ? 'Approved ✓' : 'Review Application'}
                                 </button>
                               </td>
                             </tr>
@@ -5646,6 +5623,75 @@ export default function App() {
                         </tbody>
                       </table>
                     </div>
+                    </div>
+
+                    {/* Vendor Review Modal */}
+                    {vendorReviewModal && (
+                      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[999] flex items-center justify-center p-4 animate-fade-in">
+                        <div className="bg-black border-2 border-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col">
+                          <button onClick={() => setVendorReviewModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white z-10 cursor-pointer">
+                            <X className="w-5 h-5" />
+                          </button>
+                          <div className="p-6 border-b border-white/20 bg-zinc-950">
+                            <h3 className="text-xl font-bold uppercase text-white tracking-widest font-heading">Review Vendor Application</h3>
+                          </div>
+                          <div className="p-6 space-y-4 text-sm text-slate-300 flex-1 overflow-y-auto">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Truck / Business Name</p>
+                                <p className="font-semibold text-white">{vendorReviewModal.name}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Food Type</p>
+                                <p className="font-semibold text-white uppercase">{vendorReviewModal.foodType}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Business Email</p>
+                                <p className="text-white truncate">{vendorReviewModal.email}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Phone Number</p>
+                                <p className="text-white font-mono">{vendorReviewModal.phone}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Borough</p>
+                                <p className="text-white">{vendorReviewModal.borough}</p>
+                              </div>
+                              <div className="col-span-2">
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Pickup Location (PIN STOP)</p>
+                                <p className="text-white bg-zinc-900 p-2 rounded border border-white/10">{vendorReviewModal.location || 'N/A'}</p>
+                              </div>
+                            </div>
+                            
+                            <div className="mt-6 border border-emerald-500/30 bg-emerald-950/20 p-4 rounded-xl">
+                              <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                <ShieldCheck className="w-4 h-4" />
+                                Vendor Portal Access
+                              </h4>
+                              <p className="text-[11px] text-slate-400 leading-relaxed">
+                                Approving this application will generate a Vendor Profile and grant the user full access to the <strong>Vendor Portal</strong>. 
+                                Once approved, they can log in to update their GPS coordinates, edit their menu, and begin accepting live orders.
+                              </p>
+                            </div>
+                          </div>
+                          <div className="p-6 border-t border-white/20 bg-zinc-950 flex justify-end gap-3">
+                            <button 
+                              onClick={() => setVendorReviewModal(null)}
+                              className="px-5 py-2 border border-white/20 rounded-lg text-xs font-bold uppercase text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                            <button 
+                              onClick={() => handleApproveVendor(vendorReviewModal)}
+                              className="px-5 py-2 border border-emerald-500 bg-emerald-500 text-black rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-emerald-400 hover:border-emerald-400 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                              Approve for Vendor Portal
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Multi-Truck Fleet Upgrade Requests */}
                     <div className="border-t border-white/20 pt-6 mt-6 animate-fade-in">

@@ -1075,6 +1075,64 @@ async function sendVendorWelcomeEmail(email, name) {
   return sendEmail({ to: email, subject: "CURBSIDES Food Truck Onboarding Approval", html });
 }
 
+async function sendAdminVendorAppAlert(appData) {
+  const adminEmail = "libertydispatchers@gmail.com";
+  const html = `
+    <div style="background-color: #000; color: #fff; padding: 30px; font-family: sans-serif; border: 2px solid #fff; border-radius: 12px; max-width: 600px; margin: 0 auto;">
+      <h1 style="font-size: 20px; text-transform: uppercase; border-bottom: 2px solid #fff; padding-bottom: 15px; margin-top: 0; color: #10b981;">New Vendor Application</h1>
+      <p style="font-size: 14px; color: #a0aec0;">A new vendor has applied to join the CURBSIDES fleet.</p>
+      <ul style="color: #fff; font-size: 14px; line-height: 1.6;">
+        <li><strong>Truck / Business Name:</strong> ${appData.name}</li>
+        <li><strong>Email:</strong> ${appData.email}</li>
+        <li><strong>Phone:</strong> ${appData.phone}</li>
+        <li><strong>Food Type:</strong> ${appData.foodType}</li>
+        <li><strong>Borough:</strong> ${appData.borough}</li>
+        <li><strong>Location:</strong> ${appData.location || 'Not provided'}</li>
+      </ul>
+      <div style="text-align: center; margin: 25px 0;">
+        <a href="https://curbsides.xyz" style="background-color: #fff; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; text-transform: uppercase; display: inline-block;">Review in Admin Dashboard</a>
+      </div>
+    </div>
+  `;
+  return sendEmail({ to: adminEmail, subject: "ALERT: New Vendor Application Received", html });
+}
+
+async function sendAdminUserSignupAlert(userData) {
+  const adminEmail = "libertydispatchers@gmail.com";
+  const html = `
+    <div style="background-color: #000; color: #fff; padding: 30px; font-family: sans-serif; border: 2px solid #fff; border-radius: 12px; max-width: 600px; margin: 0 auto;">
+      <h1 style="font-size: 20px; text-transform: uppercase; border-bottom: 2px solid #fff; padding-bottom: 15px; margin-top: 0; color: #3b82f6;">New User Registration</h1>
+      <p style="font-size: 14px; color: #a0aec0;">A new user has registered an account on CURBSIDES.</p>
+      <ul style="color: #fff; font-size: 14px; line-height: 1.6;">
+        <li><strong>Name:</strong> ${userData.name || 'Not provided'}</li>
+        <li><strong>Email:</strong> ${userData.email}</li>
+        <li><strong>Role:</strong> ${userData.role || 'customer'}</li>
+      </ul>
+    </div>
+  `;
+  return sendEmail({ to: adminEmail, subject: "ALERT: New User Signup", html });
+}
+
+app.post("/api/notify-admin/vendor-app", async (req, res) => {
+  try {
+    await sendAdminVendorAppAlert(req.body);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Failed to send admin vendor alert", err);
+    res.status(500).json({ error: "Failed to send alert" });
+  }
+});
+
+app.post("/api/notify-admin/user-signup", async (req, res) => {
+  try {
+    await sendAdminUserSignupAlert(req.body);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Failed to send admin signup alert", err);
+    res.status(500).json({ error: "Failed to send alert" });
+  }
+});
+
 app.post("/api/auth/register", async (req, res) => {
   const { email, password, name, role, uid } = req.body;
   if (!email || !password || !name || !role) {
