@@ -266,32 +266,45 @@ export default function App() {
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
 
-  // Fetch vendors on load and when Shopify connection config changes
+  // Fetch vendors natively from Firebase on load
   useEffect(() => {
-    async function loadData() {
+    let unsubscribe = () => {};
+    
+    async function loadNativeVendors() {
       setLoading(true);
-      const data = await fetchVendorsAndProducts();
-      // Map mock emails and coordinates for easy vendor login simulation
-      const mappedData = data.map(v => ({
-        ...v,
-        email: v.email || (
-          v.id === 'vendor-korean-taco' ? 'tacos@kbbq.com' :
-          v.id === 'vendor-empanada-guy' ? 'empanadas@guy.com' :
-          v.id === 'vendor-halal-kings' ? 'kings@halalcart.com' :
-          `${v.name.toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`
-        ),
-        coordinates: v.coordinates || (
-          v.id === 'vendor-korean-taco' ? [40.7580, -73.9855] :
-          v.id === 'vendor-empanada-guy' ? [40.7150, -73.9843] :
-          v.id === 'vendor-ramen-wheels' ? [40.7081, -73.9571] :
-          v.id === 'vendor-jerk-chicken' ? [40.8116, -73.9465] :
-          [40.7128 + (Math.random() - 0.5) * 0.08, -74.0060 + (Math.random() - 0.5) * 0.08]
-        )
-      }));
-      setVendors(mappedData);
-      setLoading(false);
+      try {
+        const { db, collection, query, where, onSnapshot } = await import('./firebase');
+        const q = query(collection(db, 'users'), where('role', '==', 'vendor'));
+        
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const vendorsList = [];
+          snapshot.forEach(doc => {
+            const data = doc.data();
+            vendorsList.push({
+              id: doc.id,
+              name: data.name || 'Unnamed Vendor',
+              email: data.email || `${(data.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`,
+              borough: data.borough || 'NYC',
+              coordinates: data.coordinates || [40.7128 + (Math.random() - 0.5) * 0.08, -74.0060 + (Math.random() - 0.5) * 0.08],
+              isOpen: data.isOpen !== undefined ? data.isOpen : true,
+              rating: data.rating || 4.8,
+              tags: data.tags || [],
+              logo: data.logo || null,
+              items: data.items || [] // Native menu items stored directly on the vendor document
+            });
+          });
+          setVendors(vendorsList);
+          setLoading(false);
+        });
+      } catch (err) {
+        console.error("Failed to load native vendors:", err);
+        setLoading(false);
+      }
     }
-    loadData();
+    
+    loadNativeVendors();
+    
+    return () => unsubscribe();
 
     // Set initial config input values
     const config = getShopifyConfig();
@@ -599,6 +612,7 @@ export default function App() {
 
     try {
       const { auth, db, doc, getDoc, setDoc, googleProvider, facebookProvider, appleProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber } = await import('./firebase');
+      const { serverTimestamp } = await import('firebase/firestore');
       
       let user = null;
 
@@ -628,69 +642,76 @@ export default function App() {
         const result = await confirmationResult.confirm(code);
         user = result.user;
       } else {
-        alert(`${method} SSO not fully implemented with Firebase yet. Using Google or Phone instead.`);
+        alert(`${method} SSO not fully implemented with Firebase yet.`);
         return;
       }
 
       if (user) {
-        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-        const payload = {
-          uid: user.uid,
-          email: user.email || user.phoneNumber || 'no-email@example.com',
-          name: user.displayName || (user.email ? user.email.split('@')[0].toUpperCase() : 'PHONE USER'),
-          role: role
-        };
+        // Check if Firestore profile exists for this Firebase UID
+        const userDocRef = doc(db, 'users', user.uid);
+        const existingDoc = await getDoc(userDocRef);
 
-        const response = await fetch(`${BACKEND_URL}/api/auth/google`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        if (!response.ok) {
-          const errData = await response.json();
-          throw new Error(errData.message || errData.error || 'Failed to sync SSO account with backend');
+        let profileData;
+        if (existingDoc.exists()) {
+          profileData = { ...existingDoc.data(), id: user.uid };
+        } else {
+          // Create a new profile for SSO users
+          const newProfile = {
+            name: user.displayName || (user.email ? user.email.split('@')[0] : 'New User'),
+            email: (user.email || user.phoneNumber || '').toLowerCase(),
+            role: role,
+            isOpen: role === 'vendor' ? false : null,
+            rating: role === 'vendor' ? 5.0 : null,
+            tags: role === 'vendor' ? ['New', 'Street Food'] : null,
+            items: role === 'vendor' ? [] : null,
+            earnings: role === 'vendor' ? 0 : null,
+            createdAt: serverTimestamp(),
+            googleUid: user.uid,
+            photoURL: user.photoURL || null,
+          };
+          await setDoc(userDocRef, newProfile);
+          profileData = { ...newProfile, id: user.uid };
         }
 
-        const dataUserResponse = await response.json();
-        const dataUser = dataUserResponse.user;
-
-        if (!dataUser) {
-          throw new Error("Invalid response from server during SSO.");
+        // Override role for admin email
+        if (profileData.email === 'libertydispatchers@gmail.com') {
+          profileData.role = 'admin';
         }
-        
-        if (dataUser.role === 'admin') {
-          setCustomerUser(dataUser);
+
+        if (profileData.role === 'admin') {
+          setCustomerUser(profileData);
           setIsStaffAuthenticated(true);
           setIsAdminAuthenticated(true);
           setActiveTab('admin');
-        } else if (dataUser.role === 'driver') {
-          setDriverUser(dataUser);
+        } else if (profileData.role === 'driver') {
+          setDriverUser(profileData);
           setDriverActiveSubTab('deliveries');
           setActiveTab('driver-portal');
-        } else if (dataUser.role === 'vendor') {
-          const matchedVendor = vendors.find(v => v.email?.toLowerCase() === dataUser.email?.toLowerCase() || v.name.toLowerCase().includes(dataUser.name.toLowerCase()));
+        } else if (profileData.role === 'vendor') {
+          const matchedVendor = vendors.find(v => v.email?.toLowerCase() === profileData.email?.toLowerCase() || v.name?.toLowerCase().includes(profileData.name?.toLowerCase()));
           if (matchedVendor) {
             setVendorUser(matchedVendor);
             setSelectedPortalVendorId(matchedVendor.id);
           } else {
-            const fallbackVendor = {
-              id: dataUser.id || 'vendor-' + Date.now(),
-              name: dataUser.name,
-              email: dataUser.email,
-              borough: 'Manhattan, NYC',
-              isOpen: true,
-              rating: 5.0,
-              tags: ['Verified', 'Street Food'],
-              items: []
+            const sessionVendor = {
+              id: profileData.id,
+              name: profileData.name,
+              email: profileData.email,
+              borough: profileData.borough || 'Manhattan, NYC',
+              isOpen: profileData.isOpen ?? false,
+              rating: profileData.rating || 5.0,
+              tags: profileData.tags || ['Verified', 'Street Food'],
+              items: profileData.items || [],
+              earnings: profileData.earnings || 0,
+              logo: profileData.photoURL || null,
             };
-            setVendorUser(fallbackVendor);
-            setSelectedPortalVendorId(fallbackVendor.id);
+            setVendorUser(sessionVendor);
+            setSelectedPortalVendorId(sessionVendor.id);
           }
           setVendorActiveSubTab('menu');
           setActiveTab('vendor-portal');
         } else {
-          setCustomerUser(dataUser);
+          setCustomerUser(profileData);
           setCustomerActiveSubTab('profile');
           setActiveTab('account');
         }
@@ -901,19 +922,18 @@ export default function App() {
       borough: vendorBorough
     };
 
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      const res = await fetch(`${BACKEND_URL}/api/vendor-applications`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newApp)
-      });
-      if (!res.ok) {
-        throw new Error("API responded with an error");
-      }
+      const { db, collection, addDoc } = await import('./firebase');
+      const applicationData = {
+        ...newApp,
+        createdAt: new Date().toISOString(),
+        status: "pending"
+      };
+      
+      await addDoc(collection(db, 'vendor-applications'), applicationData);
       setVendorOnboardSuccess(true);
     } catch (err) {
-      console.error("Failed to submit vendor application:", err);
+      console.error("Failed to submit vendor application natively:", err);
       setVendorOnboardError("Failed to submit application. Please try again.");
     }
 
@@ -945,23 +965,14 @@ export default function App() {
       earnings: 0.00
     };
 
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-    fetch(`${BACKEND_URL}/api/drivers`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newDriver)
-    })
-    .then(res => {
-      if (!res.ok) throw new Error();
-      return res.json();
-    })
-    .then(savedDriver => {
-      // It's already sent to Firestore by the backend, our onSnapshot listener will pick it up
+    try {
+      const { db, collection, addDoc } = await import('./firebase');
+      await addDoc(collection(db, 'drivers'), newDriver);
       setDriverOnboardSuccess(true);
-    })
-    .catch(() => {
-      setDriverOnboardError("Failed to submit driver application. Please try again.");
-    });
+    } catch (err) {
+      console.error("Failed to submit driver application natively:", err);
+      setDriverOnboardError("Failed to submit application. Please try again.");
+    }
 
     // Clear form fields
     setDriverNameInput('');
@@ -1135,90 +1146,90 @@ export default function App() {
     setActiveTab('directory');
   };
 
-  // Authenticate Vendor User
+  // Authenticate Vendor User via real Firebase Auth
   const handleVendorLogin = async (e) => {
     e.preventDefault();
     setVendorLoginError('');
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
 
     try {
-      const res = await fetch(`${BACKEND_URL}/api/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: vendorLoginEmail.trim(),
-          password: vendorLoginPasscode
-        })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        if (data.user.role !== 'vendor') {
-          setVendorLoginError("Access denied. Please use the appropriate sign-in portal for your role.");
-          return;
-        }
-        
-        const matchedVendor = vendors.find(v => v.email?.toLowerCase() === vendorLoginEmail.toLowerCase() || v.name.toLowerCase().includes(data.user.name.toLowerCase()));
-        if (matchedVendor) {
-          setVendorUser(matchedVendor);
-          setSelectedPortalVendorId(matchedVendor.id);
+      const { auth, signInWithEmailAndPassword, db, doc, getDoc, collection, query, where, getDocs } = await import('./firebase');
+      
+      // 1. Sign in with Firebase Auth (email + password)
+      let userCredential;
+      try {
+        userCredential = await signInWithEmailAndPassword(auth, vendorLoginEmail.trim(), vendorLoginPasscode);
+      } catch (authErr) {
+        const code = authErr.code;
+        if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+          setVendorLoginError('Invalid email or password. Please check your credentials.');
+        } else if (code === 'auth/too-many-requests') {
+          setVendorLoginError('Too many failed attempts. Please wait a moment and try again.');
         } else {
-          const fallbackVendor = {
-            id: data.user.associatedId || 'vendor-sim',
-            name: data.user.name,
-            email: vendorLoginEmail,
-            borough: 'Manhattan, NYC',
-            isOpen: true,
-            rating: 5.0,
-            tags: ['Verified', 'Street Food'],
-            items: []
-          };
-          setVendorUser(fallbackVendor);
-          setSelectedPortalVendorId(fallbackVendor.id);
+          setVendorLoginError(authErr.message || 'Sign in failed.');
         }
-      } else if (res.status === 403 && data.error === 'unverified') {
-        setVerificationPendingEmail(vendorLoginEmail.trim());
-      } else {
-        setVendorLoginError(data.error || "Login failed.");
-      }
-    } catch (err) {
-      if (vendorLoginPasscode !== 'vendor-123') {
-        setVendorLoginError('Invalid passcode. Try passcode: vendor-123.');
         return;
       }
 
-      const foundVendor = vendors.find(v => 
-        v.email?.toLowerCase() === vendorLoginEmail.toLowerCase() || 
-        (vendorLoginEmail.toLowerCase().includes('kings') && v.name.toLowerCase().includes('kings')) ||
-        (vendorLoginEmail.toLowerCase().includes('taco') && v.name.toLowerCase().includes('taco')) ||
-        (vendorLoginEmail.toLowerCase().includes('empanada') && v.name.toLowerCase().includes('empanada'))
-      );
-      
-      if (foundVendor) {
-        setVendorUser(foundVendor);
-        setSelectedPortalVendorId(foundVendor.id);
-      } else {
-        const emailPrefix = vendorLoginEmail.split('@')[0];
-        const formatName = emailPrefix
-          .split(/[._-]/)
-          .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-          .join(' ') + " Truck";
-        
-        const newVendorId = 'vendor-' + Date.now();
-        const newVendor = {
-          id: newVendorId,
-          name: formatName,
-          email: vendorLoginEmail,
-          borough: 'Manhattan, NYC',
-          isOpen: true,
-          rating: 5.0,
-          tags: ['New', 'Street Food'],
-          reviews: [],
-          items: []
-        };
-        setVendors(prev => [...prev, newVendor]);
-        setVendorUser(newVendor);
-        setSelectedPortalVendorId(newVendorId);
+      const firebaseUser = userCredential.user;
+
+      // 2. Check email verification
+      if (!firebaseUser.emailVerified) {
+        setVendorLoginError('Please verify your email before signing in. Check your inbox for a verification link.');
+        return;
       }
+
+      // 3. Look up their Firestore profile to get role + vendor data
+      const userDocRef = doc(db, 'users', firebaseUser.uid);
+      let userDocSnap = await getDoc(userDocRef);
+
+      if (!userDocSnap.exists()) {
+        // Try searching by email in case they were registered differently
+        const q = query(collection(db, 'users'), where('email', '==', vendorLoginEmail.trim().toLowerCase()));
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          userDocSnap = { exists: () => true, data: () => ({ ...snap.docs[0].data(), id: snap.docs[0].id }) };
+        } else {
+          setVendorLoginError('No account profile found. Please register as a vendor first.');
+          return;
+        }
+      }
+
+      const userData = { ...userDocSnap.data(), id: userDocSnap.id || firebaseUser.uid };
+
+      if (userData.role !== 'vendor') {
+        setVendorLoginError('Access denied. This portal is for registered vendors only.');
+        return;
+      }
+
+      // 4. Match to the vendors directory or create a session profile
+      const matchedVendor = vendors.find(v =>
+        v.email?.toLowerCase() === vendorLoginEmail.trim().toLowerCase() ||
+        v.name?.toLowerCase().includes(userData.name?.toLowerCase())
+      );
+
+      if (matchedVendor) {
+        setVendorUser(matchedVendor);
+        setSelectedPortalVendorId(matchedVendor.id);
+      } else {
+        const sessionVendor = {
+          id: userData.id,
+          name: userData.name || firebaseUser.displayName || vendorLoginEmail.split('@')[0],
+          email: vendorLoginEmail.trim(),
+          borough: userData.borough || 'Manhattan, NYC',
+          isOpen: userData.isOpen ?? true,
+          rating: userData.rating || 5.0,
+          tags: userData.tags || ['Verified', 'Street Food'],
+          items: userData.items || [],
+          earnings: userData.earnings || 0,
+          logo: userData.logo || null,
+        };
+        setVendorUser(sessionVendor);
+        setSelectedPortalVendorId(sessionVendor.id);
+      }
+
+    } catch (err) {
+      console.error('Vendor login error:', err);
+      setVendorLoginError(err.message || 'An unexpected error occurred.');
     }
   };
 
@@ -1233,45 +1244,21 @@ export default function App() {
 
   // Vendor Status Update Handler
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
-    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      const response = await fetch(`${BACKEND_URL}/api/orders/${orderId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
+      const { db, doc, updateDoc } = await import('./firebase');
+      await updateDoc(doc(db, 'orders', orderId), {
+        status: newStatus
       });
-      if (response.ok) {
-        const updatedOrder = await response.json();
-        setOrders(prevOrders => prevOrders.map(o => o.id === orderId ? { ...o, ...updatedOrder } : o));
-        
-        // Live sync with tracking page if the active order matches
-        if (searchedOrder && searchedOrder.id === orderId) {
-          let vendorName = 'Vendor';
-          if (updatedOrder.vendorAddress) {
-            const commaIdx = updatedOrder.vendorAddress.indexOf(',');
-            vendorName = commaIdx > -1 ? updatedOrder.vendorAddress.substring(0, commaIdx) : updatedOrder.vendorAddress;
-          }
-          
-          let driverName = searchedOrder.driverName;
-          if (updatedOrder.driverId) {
-            const matchedDriver = drivers.find(d => d.id === updatedOrder.driverId);
-            driverName = matchedDriver ? matchedDriver.fullName : 'Sarah Chen';
-          }
-
-          setSearchedOrder({
-            id: updatedOrder.id,
-            status: updatedOrder.status,
-            vendor: vendorName,
-            eta: updatedOrder.status === 'Delivered' ? 0 : (updatedOrder.status === 'On the Way' ? 8 : (updatedOrder.status === 'Driver Assigned' ? 15 : 25)),
-            driverName: driverName,
-            driverPhone: '555-0144'
-          });
-        }
-      } else {
-        alert('Failed to update order status.');
+      
+      // Local state is handled by onSnapshot in useEffect, but we can do optimistic update
+      setOrders(prevOrders => prevOrders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
+      
+      if (searchedOrder && searchedOrder.id === orderId) {
+        setSearchedOrder(prev => prev ? { ...prev, status: newStatus } : null);
       }
     } catch (err) {
-      console.error('Error updating order status:', err);
+      console.error('Error updating order status natively:', err);
+      alert('Failed to update order status natively. Check console.');
       // Offline fallback
       setOrders(prevOrders => prevOrders.map(o => o.id === orderId ? { ...o, status: newStatus } : o));
       if (searchedOrder && searchedOrder.id === orderId) {
@@ -1714,68 +1701,46 @@ export default function App() {
       image: newMenuImage || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=500&auto=format&fit=crop&q=60' // Default fallback photo
     };
 
-    const updatedVendors = vendors.map(v => {
-      if (v.id === vendorUser.id) {
-        const updatedItems = [...v.items, newItem];
-        setVendorUser({ ...v, items: updatedItems });
-        return { ...v, items: updatedItems };
-      }
-      return v;
-    });
+    try {
+      const { db, doc, updateDoc, arrayUnion } = await import('./firebase');
+      await updateDoc(doc(db, 'users', vendorUser.id), {
+        items: arrayUnion(newItem)
+      });
+      // Update local state temporarily for fast UI response
+      setVendorUser(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
+      
+      // Sync with Shopify via backend
+      const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token');
+      const shopifyConfigStr = localStorage.getItem('curbsides_shopify_config');
+      let shopDomain = "";
+      try { if (shopifyConfigStr) shopDomain = JSON.parse(shopifyConfigStr).domain; } catch(e){}
 
-    setVendors(updatedVendors);
-
-    // Sync to Shopify if connected
-    const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token');
-    const shopifyConfig = localStorage.getItem('curbsides_shopify_config');
-    let shopDomain = "";
-    if (shopifyConfig) {
-      try {
-        shopDomain = JSON.parse(shopifyConfig).domain;
-      } catch(e) {}
-    }
-
-    if (shopifyAdminToken && shopDomain) {
-      addShopifyApiLog('CREATING PRODUCT', `Syncing new menu item "${newMenuName}" to Shopify...`, 'text-white');
-      try {
-        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-        const response = await fetch(`${BACKEND_URL}/api/shopify/create-product`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            shop: shopDomain,
-            admin_token: shopifyAdminToken,
-            title: newMenuName,
-            vendorName: vendorUser.name,
-            borough: vendorUser.borough || 'NYC',
-            foodType: vendorUser.foodType || 'Specialty Food',
-            price: newMenuPrice
-          })
-        });
-        const result = await response.json();
-        if (response.ok && result.success) {
-          addShopifyApiLog('PRODUCT CREATED', `Successfully synced "${newMenuName}" to Shopify. ID: ${result.product.id}`, 'text-emerald-400');
-          // Update the item ID to be the real Shopify variant ID if available
-          const storefrontVariantId = result.product.variants?.[0]?.admin_graphql_api_id || result.product.id;
-          setVendors(prev => prev.map(v => {
-            if (v.id === vendorUser.id) {
-              const updatedItems = v.items.map(item => item.id === newItemId ? { ...item, id: storefrontVariantId } : item);
-              setVendorUser(prevUser => prevUser ? { ...prevUser, items: updatedItems } : null);
-              return { ...v, items: updatedItems };
-            }
-            return v;
-          }));
-        } else {
-          addShopifyApiLog('SYNC ERROR', `Failed to sync "${newMenuName}": ${result.error || 'Unknown error'}`, 'text-rose-400');
+      if (shopifyAdminToken && shopDomain) {
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/shopify/create-product`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              shop: shopDomain,
+              admin_token: shopifyAdminToken,
+              title: newMenuName,
+              vendorName: vendorUser.name,
+              borough: vendorUser.borough || 'NYC',
+              foodType: (vendorUser.tags && vendorUser.tags[0]) || "Street Food",
+              price: newMenuPrice.toString()
+            })
+          });
+          if (!res.ok) console.warn("Failed to push product to Shopify via backend API");
+        } catch(e) {
+          console.warn("Error calling shopify product create API", e);
         }
-      } catch (err) {
-        console.error("Shopify menu item sync failed:", err);
-        addShopifyApiLog('SYNC ERROR', `Failed to sync "${newMenuName}": connection failed`, 'text-rose-400');
       }
+
+    } catch (err) {
+      console.error("Failed to add menu item natively:", err);
+      alert("Failed to add menu item.");
     }
-    
+
     // Reset form
     setNewMenuName('');
     setNewMenuDesc('');
@@ -1785,31 +1750,32 @@ export default function App() {
   };
 
   // Edit an existing menu item
-  const handleEditMenuItem = (e) => {
+  const handleEditMenuItem = async (e) => {
     e.preventDefault();
     if (!editingItem || !editMenuName || !editMenuPrice || !vendorUser) return;
 
-    const updatedVendors = vendors.map(v => {
-      if (v.id === vendorUser.id) {
-        const updatedItems = v.items.map(item => {
-          if (item.id === editingItem.id) {
-            return {
-              ...item,
-              name: editMenuName,
-              description: editMenuDesc,
-              price: parseFloat(editMenuPrice),
-              image: editMenuImage || item.image
-            };
-          }
-          return item;
-        });
-        setVendorUser({ ...v, items: updatedItems });
-        return { ...v, items: updatedItems };
-      }
-      return v;
-    });
+    try {
+      const updatedItems = (vendorUser.items || []).map(item => {
+        if (item.id === editingItem.id) {
+          return {
+            ...item,
+            name: editMenuName,
+            description: editMenuDesc,
+            price: parseFloat(editMenuPrice),
+            image: editMenuImage || item.image
+          };
+        }
+        return item;
+      });
 
-    setVendors(updatedVendors);
+      const { db, doc, updateDoc } = await import('./firebase');
+      await updateDoc(doc(db, 'users', vendorUser.id), { items: updatedItems });
+      
+      setVendorUser(prev => ({ ...prev, items: updatedItems }));
+    } catch (err) {
+      console.error("Failed to edit menu item:", err);
+      alert("Failed to edit menu item.");
+    }
 
     // Reset edit state
     setEditingItem(null);
@@ -1820,45 +1786,44 @@ export default function App() {
   };
 
   // Delete a menu item
-  const handleDeleteMenuItem = (itemId) => {
+  const handleDeleteMenuItem = async (itemId) => {
     if (!vendorUser) return;
     if (!confirm('Are you sure you want to delete this menu item?')) return;
 
-    const updatedVendors = vendors.map(v => {
-      if (v.id === vendorUser.id) {
-        const updatedItems = v.items.filter(item => item.id !== itemId);
-        setVendorUser({ ...v, items: updatedItems });
-        return { ...v, items: updatedItems };
-      }
-      return v;
-    });
-
-    setVendors(updatedVendors);
+    try {
+      const updatedItems = (vendorUser.items || []).filter(item => item.id !== itemId);
+      const { db, doc, updateDoc } = await import('./firebase');
+      await updateDoc(doc(db, 'users', vendorUser.id), { items: updatedItems });
+      
+      setVendorUser(prev => ({ ...prev, items: updatedItems }));
+    } catch (err) {
+      console.error("Failed to delete menu item:", err);
+      alert("Failed to delete menu item.");
+    }
   };
 
   // Update vendor profile details
-  const handleUpdateVendorProfile = (e) => {
+  const handleUpdateVendorProfile = async (e) => {
     e.preventDefault();
     if (!vendorUser) return;
 
-    const updatedVendors = vendors.map(v => {
-      if (v.id === vendorUser.id) {
-        const updated = {
-          ...v,
-          name: profileName,
-          borough: profileBorough + ', NYC',
-          tags: profileTags.split(',').map(t => t.trim()).filter(Boolean),
-          isOpen: profileIsOpen,
-          logo: profileLogo
-        };
-        setVendorUser(updated);
-        return updated;
-      }
-      return v;
-    });
-
-    setVendors(updatedVendors);
-    alert('Store Profile updated successfully!');
+    try {
+      const { db, doc, updateDoc } = await import('./firebase');
+      const updatedData = {
+        name: profileName,
+        borough: profileBorough.includes(', NYC') ? profileBorough : profileBorough + ', NYC',
+        tags: profileTags.split(',').map(t => t.trim()).filter(Boolean),
+        isOpen: profileIsOpen,
+        logo: profileLogo
+      };
+      
+      await updateDoc(doc(db, 'users', vendorUser.id), updatedData);
+      setVendorUser(prev => ({ ...prev, ...updatedData }));
+      alert('Store Profile updated successfully!');
+    } catch (err) {
+      console.error("Failed to update store profile:", err);
+      alert("Failed to update store profile.");
+    }
   };
 
   // Submit Customer Review
@@ -2270,6 +2235,13 @@ export default function App() {
                     Back to Home
                   </button>
                 </div>
+              ) : !customerUser ? (
+                <div className="text-center space-y-4 py-8">
+                  <p className="text-sm text-slate-300">You must create a Curbsides account and verify your email before applying as a courier.</p>
+                  <button onClick={() => setActiveTab('account')} className="px-6 py-3 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading">
+                    Sign In / Register
+                  </button>
+                </div>
               ) : (
                 <form onSubmit={handleDriverOnboard} className="space-y-4">
                   {driverOnboardError && (
@@ -2283,9 +2255,10 @@ export default function App() {
                       type="text"
                       required
                       placeholder="Carlos Rivera"
-                      value={driverNameInput}
+                      value={driverNameInput || customerUser?.name || ''}
                       onChange={(e) => setDriverNameInput(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                      readOnly={!!customerUser}
+                      className={`w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none ${customerUser ? 'opacity-70 cursor-not-allowed' : ''}`}
                     />
                   </div>
                   <div>
@@ -2294,9 +2267,10 @@ export default function App() {
                       type="email"
                       required
                       placeholder="carlos@example.com"
-                      value={driverEmailInput}
+                      value={driverEmailInput || customerUser?.email || ''}
                       onChange={(e) => setDriverEmailInput(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                      readOnly={!!customerUser}
+                      className={`w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none ${customerUser ? 'opacity-70 cursor-not-allowed' : ''}`}
                     />
                   </div>
                   <div>
@@ -2388,6 +2362,13 @@ export default function App() {
                     Back to Home
                   </button>
                 </div>
+              ) : !customerUser ? (
+                <div className="text-center space-y-4 py-8">
+                  <p className="text-sm text-slate-300">You must create a Curbsides account and verify your email before registering a vendor profile.</p>
+                  <button onClick={() => setActiveTab('account')} className="px-6 py-3 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading">
+                    Sign In / Register
+                  </button>
+                </div>
               ) : (
                 <form onSubmit={handleVendorOnboard} className="space-y-4">
                   {vendorOnboardError && (
@@ -2412,9 +2393,10 @@ export default function App() {
                       type="email"
                       required
                       placeholder="email@example.com"
-                      value={vendorEmail}
+                      value={vendorEmail || customerUser?.email || ''}
                       onChange={(e) => setVendorEmail(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                      readOnly={!!customerUser}
+                      className={`w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none ${customerUser ? 'opacity-70 cursor-not-allowed' : ''}`}
                     />
                   </div>
                   <div>
@@ -3547,11 +3529,27 @@ export default function App() {
                       Vendor Workspace
                     </span>
                     <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Vendor Sign In</h2>
-                    <p className="text-xs text-slate-400 mt-1">Authenticate as registered food truck staff to manage your live GPS and menu items.</p>
+                    <p className="text-xs text-slate-400 mt-1">Sign in to manage your truck's menu, orders, and payouts.</p>
+                  </div>
+
+                  {/* Google Sign-In */}
+                  <button
+                    type="button"
+                    onClick={() => handleSSOClick('Google', 'vendor')}
+                    className="w-full flex items-center justify-center gap-3 py-3 border-2 border-white/20 rounded-xl bg-zinc-950 text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                  >
+                    <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
+                    Continue with Google
+                  </button>
+
+                  <div className="flex items-center gap-3">
+                    <span className="h-[1px] bg-white/10 flex-1"></span>
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or sign in with email</span>
+                    <span className="h-[1px] bg-white/10 flex-1"></span>
                   </div>
 
                   {vendorLoginError && (
-                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
+                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-400 text-xs font-bold uppercase text-center rounded-lg">
                       {vendorLoginError}
                     </div>
                   )}
@@ -3562,7 +3560,7 @@ export default function App() {
                       <input
                         type="email"
                         required
-                        placeholder="e.g. tacos@kbbq.com"
+                        placeholder="your@email.com"
                         value={vendorLoginEmail}
                         onChange={(e) => setVendorLoginEmail(e.target.value)}
                         className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
@@ -3570,11 +3568,11 @@ export default function App() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Staff Passcode</label>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
                       <input
                         type="password"
                         required
-                        placeholder="Passcode (e.g. vendor-123)"
+                        placeholder="Your password"
                         value={vendorLoginPasscode}
                         onChange={(e) => setVendorLoginPasscode(e.target.value)}
                         className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
@@ -3584,10 +3582,23 @@ export default function App() {
                     <div className="flex justify-end">
                       <button
                         type="button"
-                        onClick={() => handleForgotDatabasePassword('vendor')}
+                        onClick={async () => {
+                          const email = vendorLoginEmail.trim();
+                          if (!email) { setVendorLoginError('Enter your email address above first.'); return; }
+                          try {
+                            const { auth, sendPasswordResetEmail } = await import('firebase/auth');
+                            const { auth: firebaseAuth } = await import('./firebase');
+                            const { sendPasswordResetEmail: resetFn } = await import('firebase/auth');
+                            await resetFn(firebaseAuth, email);
+                            setVendorLoginError('');
+                            alert(`Password reset link sent to ${email}. Check your inbox.`);
+                          } catch (err) {
+                            setVendorLoginError('Could not send reset email: ' + err.message);
+                          }
+                        }}
                         className="text-[10px] font-bold text-slate-400 hover:text-white uppercase tracking-wider transition-colors cursor-pointer bg-transparent border-none outline-none"
                       >
-                        Forgot Passcode?
+                        Forgot Password?
                       </button>
                     </div>
 
@@ -3595,46 +3606,13 @@ export default function App() {
                       type="submit"
                       className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
                     >
-                      Enter Dashboard
+                      Sign In to Dashboard
                     </button>
                   </form>
 
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-center gap-2 my-4">
-                      <span className="h-[1px] bg-white/10 flex-1"></span>
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or sign in with</span>
-                      <span className="h-[1px] bg-white/10 flex-1"></span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Google', 'vendor')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
-                        Google
-                      </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Phone', 'vendor')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                          Phone
-                        </button>
-                      
-                    </div>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      
-                      
-                    </div>
-                  </div>
-
-                  <div className="border-t border-white/10 pt-4 text-center">
-                    <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
-                      Approved Simulation Accounts
-                    </p>
-                    <div className="mt-2 flex flex-wrap gap-1.5 justify-center">
+                  <div className="border-t border-white/10 pt-4 text-center space-y-2">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold">Demo Accounts (Test Only)</p>
+                    <div className="flex flex-wrap gap-1.5 justify-center">
                       <span onClick={() => { setVendorLoginEmail('tacos@kbbq.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">tacos@kbbq.com</span>
                       <span onClick={() => { setVendorLoginEmail('empanadas@guy.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">empanadas@guy.com</span>
                       <span onClick={() => { setVendorLoginEmail('kings@halalcart.com'); setVendorLoginPasscode('vendor-123'); }} className="cursor-pointer bg-zinc-950 border border-zinc-800 text-slate-300 text-[9px] px-2 py-0.5 rounded hover:border-white transition-all">kings@halalcart.com</span>
@@ -3647,12 +3625,28 @@ export default function App() {
                     <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded animate-pulse">
                       Vendor Onboarding
                     </span>
-                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Register Truck</h2>
-                    <p className="text-xs text-slate-400 mt-1">Create a staff profile and verify email to list your food truck on Curbsides.</p>
+                    <h2 className="text-2xl font-bold uppercase text-white font-heading mt-3">Register Your Truck</h2>
+                    <p className="text-xs text-slate-400 mt-1">Create your account and verify your email to get listed on Curbsides.</p>
+                  </div>
+
+                  {/* Google Sign-Up */}
+                  <button
+                    type="button"
+                    onClick={() => handleSSOClick('Google', 'vendor')}
+                    className="w-full flex items-center justify-center gap-3 py-3 border-2 border-white/20 rounded-xl bg-zinc-950 text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                  >
+                    <svg className="w-4 h-4 fill-current shrink-0" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
+                    Sign Up with Google
+                  </button>
+
+                  <div className="flex items-center gap-3">
+                    <span className="h-[1px] bg-white/10 flex-1"></span>
+                    <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or register with email</span>
+                    <span className="h-[1px] bg-white/10 flex-1"></span>
                   </div>
 
                   {vendorLoginError && (
-                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-500 text-xs font-bold uppercase text-center rounded">
+                    <div className="p-3 border border-red-500 bg-red-950/20 text-red-400 text-xs font-bold uppercase text-center rounded-lg">
                       {vendorLoginError}
                     </div>
                   )}
@@ -3661,31 +3655,66 @@ export default function App() {
                     onSubmit={async (e) => {
                       e.preventDefault();
                       setVendorLoginError('');
-                      const name = e.target.truckName.value.trim();
+                      const truckName = e.target.truckName.value.trim();
                       const email = e.target.email.value.trim();
-                      const password = e.target.passcode.value;
-                      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+                      const password = e.target.password.value;
+                      const confirm = e.target.confirmPassword.value;
+
+                      if (password !== confirm) {
+                        setVendorLoginError("Passwords do not match.");
+                        return;
+                      }
+                      if (password.length < 6) {
+                        setVendorLoginError("Password must be at least 6 characters.");
+                        return;
+                      }
 
                       try {
-                        const res = await fetch(`${BACKEND_URL}/api/auth/register`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ name, email, password, role: 'vendor' })
+                        const { auth: firebaseAuth } = await import('./firebase');
+                        const { createUserWithEmailAndPassword, sendEmailVerification, updateProfile } = await import('firebase/auth');
+                        const { db, doc, setDoc } = await import('./firebase');
+                        const { serverTimestamp } = await import('firebase/firestore');
+
+                        // Create the Firebase Auth account
+                        const userCredential = await createUserWithEmailAndPassword(firebaseAuth, email, password);
+                        const newUser = userCredential.user;
+
+                        // Set their display name
+                        await updateProfile(newUser, { displayName: truckName });
+
+                        // Send real email verification
+                        await sendEmailVerification(newUser);
+
+                        // Write their profile doc to Firestore
+                        await setDoc(doc(db, 'users', newUser.uid), {
+                          name: truckName,
+                          email: email.toLowerCase(),
+                          role: 'vendor',
+                          isOpen: false,
+                          rating: 5.0,
+                          tags: ['New', 'Street Food'],
+                          items: [],
+                          earnings: 0,
+                          createdAt: serverTimestamp()
                         });
-                        const data = await res.json();
-                        if (res.ok) {
-                          setVerificationPendingEmail(email);
-                        } else {
-                          setVendorLoginError(data.error || "Registration failed.");
-                        }
+
+                        // Show the email-sent confirmation screen
+                        setVerificationPendingEmail(email);
+
                       } catch (err) {
-                        setVendorLoginError("Network error. Verify server is running.");
+                        if (err.code === 'auth/email-already-in-use') {
+                          setVendorLoginError('This email is already registered. Please sign in instead.');
+                        } else if (err.code === 'auth/invalid-email') {
+                          setVendorLoginError('Please enter a valid email address.');
+                        } else {
+                          setVendorLoginError(err.message || 'Registration failed.');
+                        }
                       }
                     }}
                     className="space-y-4"
                   >
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Food Truck Name</label>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Food Truck / Business Name</label>
                       <input
                         name="truckName"
                         type="text"
@@ -3696,23 +3725,35 @@ export default function App() {
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Staff Email Address</label>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Email</label>
                       <input
                         name="email"
                         type="email"
                         required
-                        placeholder="e.g. staff@birria.com"
+                        placeholder="you@yourtruck.com"
                         className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
                       />
                     </div>
 
                     <div>
-                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Staff Passcode</label>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Password</label>
                       <input
-                        name="passcode"
+                        name="password"
                         type="password"
                         required
-                        placeholder="Passcode (e.g. vendor-123)"
+                        minLength={6}
+                        placeholder="Min. 6 characters"
+                        className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Confirm Password</label>
+                      <input
+                        name="confirmPassword"
+                        type="password"
+                        required
+                        placeholder="Repeat your password"
                         className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
                       />
                     </div>
@@ -3721,40 +3762,9 @@ export default function App() {
                       type="submit"
                       className="w-full py-3.5 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
                     >
-                      Verify Email &amp; List Truck
+                      Create Account & Send Verification
                     </button>
                   </form>
-
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-center gap-2 my-4">
-                      <span className="h-[1px] bg-white/10 flex-1"></span>
-                      <span className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Or register with</span>
-                      <span className="h-[1px] bg-white/10 flex-1"></span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleSSOClick('Google', 'vendor')}
-                        className="flex items-center justify-center gap-2 py-2.5 border border-white/20 rounded-xl bg-zinc-950/60 text-white font-extrabold text-[10px] uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                      >
-                        <svg className="w-3.5 h-3.5 fill-current" viewBox="0 0 24 24"><path d="M12.24 10.285V13.4h6.887C18.2 15.614 15.645 18 12.24 18c-3.86 0-7-3.14-7-7s3.14-7 7-7c1.7 0 3.3.6 4.5 1.7l2.4-2.4C17.3 1.6 14.9 1 12.24 1A10.01 10.01 0 0 0 2.25 11a10.01 10.01 0 0 0 9.99 10c5.56 0 10.13-4.04 10.13-10 0-.68-.08-1.32-.24-1.715h-9.893z"/></svg>
-                        Google
-                      </button>
-                        <button
-                          type="button"
-                          onClick={() => handleSSOClick('Phone', 'vendor')}
-                          className="flex items-center justify-center gap-2 py-2.5 border border-[#34d399]/30 rounded-xl bg-[#34d399]/10 text-white font-extrabold text-[10px] uppercase hover:bg-[#34d399] hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                          Phone
-                        </button>
-                      
-                    </div>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      
-                      
-                    </div>
-                  </div>
                   </>
                 )}
               </div>
@@ -3827,6 +3837,14 @@ export default function App() {
                       }`}
                     >
                       Store Profile
+                    </button>
+                    <button
+                      onClick={() => setVendorActiveSubTab('finance')}
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
+                        vendorActiveSubTab === 'finance' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                      }`}
+                    >
+                      Finance
                     </button>
                     <button
                       onClick={handleVendorLogout}
@@ -4415,6 +4433,74 @@ export default function App() {
                             Request Fleet Manager Upgrade (3 Trucks)
                           </button>
                         )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Subtab: Finance & Payouts */}
+                {vendorActiveSubTab === 'finance' && (
+                  <div className="space-y-6 animate-fade-in">
+                    <div className="flex justify-between items-center border-b border-white/20 pb-4">
+                      <div>
+                        <h3 className="text-xl font-bold uppercase text-white font-heading">Finance & Payouts</h3>
+                        <p className="text-xs text-slate-400 mt-0.5">Manage your earnings and request bank transfers.</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40">
+                        <h4 className="text-[10px] font-bold uppercase text-slate-400 tracking-widest mb-1">Available Balance</h4>
+                        <div className="text-4xl font-black text-white font-mono tracking-tighter">
+                          ${(vendorUser.earnings || 0).toFixed(2)}
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (!vendorUser.earnings || vendorUser.earnings <= 0) {
+                              alert("You don't have any available funds to withdraw.");
+                              return;
+                            }
+                            try {
+                              const { db, collection, addDoc, serverTimestamp, updateDoc, doc } = await import('./firebase');
+                              
+                              // Create payout request
+                              await addDoc(collection(db, 'payouts'), {
+                                vendorId: vendorUser.id,
+                                vendorName: vendorUser.name,
+                                email: vendorUser.email,
+                                amount: vendorUser.earnings,
+                                status: 'pending',
+                                timestamp: serverTimestamp()
+                              });
+
+                              // Reset vendor earnings optimistically
+                              await updateDoc(doc(db, 'users', vendorUser.id), {
+                                earnings: 0
+                              });
+                              setVendorUser(prev => ({ ...prev, earnings: 0 }));
+                              
+                              alert("Payout request submitted successfully. Our team will process the transfer shortly.");
+                            } catch (err) {
+                              console.error("Failed to request payout:", err);
+                              alert("Failed to submit payout request. Check your connection.");
+                            }
+                          }}
+                          className="mt-4 w-full py-3 border-2 border-emerald-500 rounded-lg bg-emerald-500/10 text-emerald-400 font-bold text-xs uppercase hover:bg-emerald-500 hover:text-white transition-all cursor-pointer font-heading"
+                        >
+                          Request Payout Transfer
+                        </button>
+                      </div>
+
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 flex flex-col justify-center items-center text-center">
+                        <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center mb-3">
+                          <svg className="w-6 h-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z" />
+                          </svg>
+                        </div>
+                        <h4 className="text-xs font-bold uppercase text-white tracking-wider">Bank Details Required</h4>
+                        <p className="text-[10px] text-slate-400 mt-2">
+                          Standard bank transfers take 2-3 business days. Please ensure your ACH routing numbers are on file with the transit administration.
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -6027,7 +6113,7 @@ export default function App() {
             }`}>
               
               {/* Hero Banner with double-lined logo and subway sign theme */}
-              <div className="p-6 border-b-2 border-white flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-black relative overflow-hidden">
+              <div className="p-4 sm:p-6 border-b-2 border-white flex flex-col md:flex-row justify-between items-start md:items-center gap-4 sm:gap-6 bg-black relative overflow-hidden">
                 <div className="space-y-3 z-10">
                   <div className="flex items-center gap-3">
                     <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tighter text-white m-0 uppercase font-heading select-none">
@@ -6057,18 +6143,18 @@ export default function App() {
               </div>
 
               {/* Featured Food Truck Row */}
-              <div className="p-6 border-b-2 border-white bg-zinc-950/20">
-                <div className="flex items-center gap-1.5 text-xs font-bold uppercase text-slate-400 mb-4 tracking-wider">
+              <div className="p-4 sm:p-6 border-b-2 border-white bg-zinc-950/20">
+                <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-bold uppercase text-slate-400 mb-3 sm:mb-4 tracking-wider">
                   <Sparkles className="w-4 h-4 text-white" />
                   Featured Vendor
                 </div>
 
                 <div className="omny-card p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                   <div className="space-y-2">
-                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
+                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded inline-block w-max">
                       Top Pick
                     </span>
-                    <h3 className="text-xl font-bold uppercase text-white font-heading">Korean BBQ Taco Truck</h3>
+                    <h3 className="text-lg sm:text-xl font-bold uppercase text-white font-heading">Korean BBQ Taco Truck</h3>
                     <p className="text-xs text-slate-400">Midtown, NYC &bull; Open Now &bull; Fusion Tacos & Fries</p>
                   </div>
 
@@ -6086,7 +6172,7 @@ export default function App() {
               </div>
 
               {/* Search, Filter, and Borough selector */}
-              <div className="p-6 border-b-2 border-white space-y-4">
+              <div className="p-4 sm:p-6 border-b-2 border-white space-y-3 sm:space-y-4">
                 <div className="relative">
                   <Search className="absolute left-3.5 top-3.5 w-5 h-5 text-slate-400" />
                   <input
@@ -6094,7 +6180,7 @@ export default function App() {
                     placeholder="Search street flavors (e.g. tacos, empanadas)..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-11 pr-4 py-3 rounded-xl omny-input text-sm text-white"
+                    className="w-full pl-11 pr-4 py-2.5 sm:py-3 rounded-xl omny-input text-sm text-white"
                   />
                 </div>
 
@@ -6103,7 +6189,7 @@ export default function App() {
                     <button
                       key={borough}
                       onClick={() => setSelectedBorough(borough)}
-                      className={`px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
+                      className={`px-2.5 sm:px-3 py-1.5 border-2 border-white rounded-lg text-[10px] sm:text-xs font-bold uppercase transition-all cursor-pointer font-heading ${
                         selectedBorough === borough 
                           ? 'bg-white text-black' 
                           : 'bg-black text-white hover:bg-white/10'
@@ -6133,7 +6219,7 @@ export default function App() {
                         setSelectedVendor(vendor);
                         setVendorModalTab('menu');
                       }}
-                      className="p-6 flex justify-between items-center hover:bg-zinc-950 transition-colors cursor-pointer"
+                      className="p-4 sm:p-6 flex justify-between items-center hover:bg-zinc-950 transition-colors cursor-pointer"
                     >
                       <div className="flex items-center gap-4 flex-1 min-w-0">
                         {vendor.logo ? (
@@ -6147,7 +6233,7 @@ export default function App() {
                         )}
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-xl font-bold uppercase text-white font-heading truncate">{vendor.name}</h3>
+                            <h3 className="text-lg sm:text-xl font-bold uppercase text-white font-heading truncate">{vendor.name}</h3>
                             {vendor.isOpen && (
                               <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping flex-shrink-0"></span>
                             )}
@@ -6175,7 +6261,7 @@ export default function App() {
               </div>
 
               {/* Interactive Barcode Ticket (Metrocard styled) */}
-              <div className="p-6 border-t-2 border-white bg-black">
+              <div className="p-4 sm:p-6 border-t-2 border-white bg-black hidden sm:block">
                 <div className="border-2 border-white rounded-xl p-5 relative overflow-hidden flex flex-col justify-between min-h-[180px] bg-black">
                   {/* Ticket Top */}
                   <div className="flex justify-between items-start">
@@ -6564,27 +6650,12 @@ export default function App() {
                 <span className="text-lg">${getCartTotal().toFixed(2)}</span>
               </div>
 
-              {checkoutUrl && (
-                <div className="bg-zinc-900 border border-white/20 p-3 rounded-lg text-xs text-center space-y-2">
-                  <p className="text-slate-300 font-semibold">Shopify checkout link generated!</p>
-                  <a 
-                    href={checkoutUrl} 
-                    target="_blank" 
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1.5 text-white font-bold hover:underline"
-                  >
-                    Open Shopify Checkout
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
-
               <button
                 onClick={handleOpenSandboxCheckout}
                 disabled={cart.length === 0 || isCheckoutLoading}
                 className="w-full py-4 border-2 border-white rounded-xl bg-white text-black font-extrabold text-sm uppercase tracking-widest hover:bg-black hover:text-white transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer font-heading"
               >
-                Checkout (Sandbox Simulation)
+                Checkout
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
