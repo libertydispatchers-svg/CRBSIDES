@@ -172,3 +172,4 @@ export const getDoc = (docRef) => {
 };
 
 export const Timestamp = firestore.Timestamp;
+export const serverTimestamp = firestore.serverTimestamp;

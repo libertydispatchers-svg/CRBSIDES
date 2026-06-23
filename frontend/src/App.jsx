@@ -1045,37 +1045,48 @@ export default function App() {
   };
 
   const handleApproveVendor = async (app) => {
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      const { db, doc, updateDoc, setDoc } = await import('./firebase');
-      
-      // Update application status to approved
-      await updateDoc(doc(db, 'vendor-applications', app.id), { status: 'approved' });
+      // 1. Call backend PATCH — this updates Firestore status AND sends the vendor welcome email
+      const res = await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' })
+      });
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error ${res.status}`);
+      }
 
-      // Create vendor profile in the vendors collection so they can access the Vendor Portal
-      const newVendorId = 'vendor-' + Date.now();
-      const newVendor = {
-        id: newVendorId,
+      // 2. Create the vendor in the 'users' collection with role: 'vendor'
+      //    This makes them appear in the real-time vendor directory immediately.
+      const { db, doc, setDoc, serverTimestamp } = await import('./firebase');
+      const vendorUid = `vendor-approved-${Date.now()}`;
+      await setDoc(doc(db, 'users', vendorUid), {
         name: app.name,
         email: app.email,
         phone: app.phone || '',
         borough: app.borough || 'Manhattan',
         location: app.location || '',
         foodType: app.foodType || '',
-        isOpen: false, // Default closed until they open in portal
+        role: 'vendor',
+        isOpen: false,
         rating: 5.0,
         tags: ['Approved', 'Street Food', app.foodType].filter(Boolean),
-        items: [] // Empty menu to start
-      };
-      
-      await setDoc(doc(db, 'vendors', newVendorId), newVendor);
-      
-      alert(`Successfully approved ${app.name} for the Vendor Portal!`);
+        items: [],
+        createdAt: serverTimestamp(),
+        approvedAt: serverTimestamp(),
+        applicationId: app.id
+      });
+
+      alert(`✅ ${app.name} has been approved! A welcome email has been sent to ${app.email}.`);
       setVendorReviewModal(null);
     } catch (err) {
-      console.error("Failed to approve vendor natively:", err);
-      alert("Failed to approve vendor. Please try again.");
+      console.error('Failed to approve vendor:', err);
+      alert(`Failed to approve vendor: ${err.message}`);
     }
   };
+
 
   // Handle Vendor GPS Location Update
   const handleUpdateGps = () => {
