@@ -170,3 +170,5 @@ export const getDoc = (docRef) => {
   if (USE_LOCAL_MOCK) return Promise.resolve({ exists: () => false, data: () => ({}) });
   return firestore.getDoc(docRef);
 };
+
+export const Timestamp = firestore.Timestamp;
