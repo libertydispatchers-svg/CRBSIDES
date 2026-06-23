@@ -173,3 +173,7 @@ export const getDoc = (docRef) => {
 
 export const Timestamp = firestore.Timestamp;
 export const serverTimestamp = firestore.serverTimestamp;
+export const getDocs = (queryRef) => {
+  if (USE_LOCAL_MOCK) return Promise.resolve({ empty: true, docs: [] });
+  return firestore.getDocs(queryRef);
+};

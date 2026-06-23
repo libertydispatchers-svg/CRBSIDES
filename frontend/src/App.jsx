@@ -677,32 +677,59 @@ export default function App() {
         if (existingDoc.exists()) {
           profileData = { ...existingDoc.data(), id: user.uid };
         } else {
-          // Create a new profile for SSO users
-          const newProfile = {
-            name: user.displayName || (user.email ? user.email.split('@')[0] : 'New User'),
-            email: (user.email || user.phoneNumber || '').toLowerCase(),
-            role: role,
-            isOpen: role === 'vendor' ? false : null,
-            rating: role === 'vendor' ? 5.0 : null,
-            tags: role === 'vendor' ? ['New', 'Street Food'] : null,
-            items: role === 'vendor' ? [] : null,
-            earnings: role === 'vendor' ? 0 : null,
-            createdAt: serverTimestamp(),
-            googleUid: user.uid,
-            photoURL: user.photoURL || null,
-          };
-          await setDoc(userDocRef, newProfile);
-          profileData = { ...newProfile, id: user.uid };
-          
-          // Notify admin of new user signup
-          try {
-            const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-            fetch(`${BACKEND_URL}/api/notify-admin/user-signup`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(newProfile)
-            }).catch(e => console.error(e));
-          } catch(e) {}
+          // Check if there's already an approved vendor profile by email
+          // (created when admin approves their application)
+          const userEmail = (user.email || '').toLowerCase();
+          let preApprovedData = null;
+          if (userEmail) {
+            try {
+              const { query: fsQuery, collection: fsCollection, where: fsWhere, getDocs } = await import('./firebase');
+              const emailQ = fsQuery(fsCollection(db, 'users'), fsWhere('email', '==', userEmail));
+              const emailSnap = await getDocs(emailQ);
+              if (!emailSnap.empty) {
+                preApprovedData = { ...emailSnap.docs[0].data(), id: emailSnap.docs[0].id };
+              }
+            } catch (e) { console.log('Pre-approved check skipped:', e.message); }
+          }
+
+          if (preApprovedData) {
+            // Merge: write the Firebase UID doc pointing to their existing data
+            // so next login resolves instantly
+            const mergedProfile = {
+              ...preApprovedData,
+              googleUid: user.uid,
+              photoURL: user.photoURL || preApprovedData.photoURL || null,
+            };
+            await setDoc(userDocRef, mergedProfile);
+            profileData = { ...mergedProfile, id: user.uid };
+          } else {
+            // Create a new profile for SSO users
+            const newProfile = {
+              name: user.displayName || (user.email ? user.email.split('@')[0] : 'New User'),
+              email: (user.email || user.phoneNumber || '').toLowerCase(),
+              role: role,
+              isOpen: role === 'vendor' ? false : null,
+              rating: role === 'vendor' ? 5.0 : null,
+              tags: role === 'vendor' ? ['New', 'Street Food'] : null,
+              items: role === 'vendor' ? [] : null,
+              earnings: role === 'vendor' ? 0 : null,
+              createdAt: serverTimestamp(),
+              googleUid: user.uid,
+              photoURL: user.photoURL || null,
+            };
+            await setDoc(userDocRef, newProfile);
+            profileData = { ...newProfile, id: user.uid };
+            
+            // Notify admin of new user signup
+            try {
+              const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+              fetch(`${BACKEND_URL}/api/notify-admin/user-signup`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newProfile)
+              }).catch(e => console.error(e));
+            } catch(e) {}
+          }
         }
 
         // Override role for admin email
@@ -1047,24 +1074,17 @@ export default function App() {
   const handleApproveVendor = async (app) => {
     const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      // 1. Call backend PATCH — this updates Firestore status AND sends the vendor welcome email
-      const res = await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'approved' })
-      });
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server error ${res.status}`);
-      }
+      const { db, doc, setDoc, updateDoc, serverTimestamp } = await import('./firebase');
 
-      // 2. Create the vendor in the 'users' collection with role: 'vendor'
+      // 1. Mark application as approved in Firestore
+      await updateDoc(doc(db, 'vendor-applications', app.id), { status: 'approved' });
+
+      // 2. Create approved vendor in 'users' collection with role: 'vendor'
       //    This makes them appear in the real-time vendor directory immediately.
-      const { db, doc, setDoc, serverTimestamp } = await import('./firebase');
       const vendorUid = `vendor-approved-${Date.now()}`;
-      await setDoc(doc(db, 'users', vendorUid), {
+      const vendorData = {
         name: app.name,
-        email: app.email,
+        email: (app.email || '').toLowerCase().trim(),
         phone: app.phone || '',
         borough: app.borough || 'Manhattan',
         location: app.location || '',
@@ -1077,9 +1097,21 @@ export default function App() {
         createdAt: serverTimestamp(),
         approvedAt: serverTimestamp(),
         applicationId: app.id
-      });
+      };
+      await setDoc(doc(db, 'users', vendorUid), vendorData);
 
-      alert(`✅ ${app.name} has been approved! A welcome email has been sent to ${app.email}.`);
+      // 3. Send vendor welcome email via dedicated backend endpoint
+      try {
+        await fetch(`${BACKEND_URL}/api/vendor-approved-email`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: app.email, name: app.name })
+        });
+      } catch (emailErr) {
+        console.error('Welcome email failed (non-fatal):', emailErr);
+      }
+
+      alert(`✅ ${app.name} approved! Welcome email sent to ${app.email}. They can now sign in to the Vendor Portal.`);
       setVendorReviewModal(null);
     } catch (err) {
       console.error('Failed to approve vendor:', err);
@@ -1434,23 +1466,30 @@ export default function App() {
         setDriverActiveSubTab('queue');
         setActiveTab('driver-portal');
       } else if (user.role === 'vendor') {
-        const matchedVendor = vendors.find(v => v.email?.toLowerCase() === user.email.toLowerCase() || v.name.toLowerCase().includes(user.name.toLowerCase()));
+        // Try to match vendor by email (works for both SSO and email login)
+        const matchedVendor = vendors.find(
+          v => v.email?.toLowerCase() === user.email?.toLowerCase()
+        );
         if (matchedVendor) {
           setVendorUser(matchedVendor);
           setSelectedPortalVendorId(matchedVendor.id);
         } else {
-          const fallbackVendor = {
-            id: user.associatedId || 'vendor-' + Date.now(),
+          // Vendor profile not in local state yet — build from user record
+          const vendorFromUser = {
+            id: user.id || 'vendor-' + Date.now(),
             name: user.name,
             email: user.email,
-            borough: 'Manhattan, NYC',
-            isOpen: true,
-            rating: 5.0,
-            tags: ['Verified', 'Street Food'],
-            items: []
+            phone: user.phone || '',
+            borough: user.borough || 'Manhattan',
+            location: user.location || '',
+            foodType: user.foodType || '',
+            isOpen: user.isOpen !== undefined ? user.isOpen : false,
+            rating: user.rating || 5.0,
+            tags: user.tags || ['Approved'],
+            items: user.items || []
           };
-          setVendorUser(fallbackVendor);
-          setSelectedPortalVendorId(fallbackVendor.id);
+          setVendorUser(vendorFromUser);
+          setSelectedPortalVendorId(vendorFromUser.id);
         }
         setVendorActiveSubTab('menu');
         setActiveTab('vendor-portal');

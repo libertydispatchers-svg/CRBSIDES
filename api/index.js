@@ -1060,20 +1060,36 @@ async function sendOrderReceiptEmail(email, name, orderId, vendorName, total, tr
 }
 
 async function sendVendorWelcomeEmail(email, name) {
+  const siteUrl = process.env.SITE_URL || 'https://curbsides.xyz';
   const html = `
     <div style="background-color: #000; color: #fff; padding: 30px; font-family: sans-serif; border: 2px solid #fff; border-radius: 12px; max-width: 500px; margin: 0 auto;">
       <h1 style="font-size: 24px; text-transform: uppercase; border-bottom: 2px solid #fff; padding-bottom: 15px; margin-top: 0;">CURBSIDES Vendor Approved</h1>
       <p style="font-size: 14px; color: #a0aec0;">Hello ${name},</p>
-      <p style="font-size: 14px; color: #a0aec0;">Congratulations! Your food truck profile has been approved by the Curbsides administration.</p>
-      <p style="font-size: 14px; color: #a0aec0;">You can now log into your Vendor Workspace to update your GPS coordinates, edit menu items, and start accepting live delivery orders.</p>
+      <p style="font-size: 14px; color: #a0aec0;">Congratulations! Your vendor application has been approved by the Curbsides team.</p>
+      <p style="font-size: 14px; color: #a0aec0;">You can now sign in to the Vendor Portal to set up your menu, update your GPS location (PIN STOP), and start accepting live orders.</p>
       <div style="text-align: center; margin: 25px 0;">
-        <a href="http://localhost:5001" style="background-color: #fff; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; text-transform: uppercase; display: inline-block;">Go to Vendor Workspace</a>
+        <a href="${siteUrl}/vendor-portal" style="background-color: #fff; color: #000; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 14px; text-transform: uppercase; display: inline-block;">Go to Vendor Portal</a>
       </div>
-      <p style="font-size: 11px; color: #718096; border-top: 1px solid #222; padding-top: 15px; margin-bottom: 0;">This is an automated vendor fleet activation notification.</p>
+      <p style="font-size: 12px; color: #a0aec0;"><strong style="color:#fff;">Sign In:</strong> Use the same Google account or email address you applied with.</p>
+      <p style="font-size: 11px; color: #718096; border-top: 1px solid #222; padding-top: 15px; margin-bottom: 0;">This is an automated notification from the Curbsides platform.</p>
     </div>
   `;
-  return sendEmail({ to: email, subject: "CURBSIDES Food Truck Onboarding Approval", html });
+  return sendEmail({ to: email, subject: "You're Approved! Access Your Curbsides Vendor Portal", html });
 }
+
+// Dedicated endpoint for sending vendor approval welcome email
+app.post("/api/vendor-approved-email", async (req, res) => {
+  const { email, name } = req.body;
+  if (!email || !name) return res.status(400).json({ error: "Missing email or name" });
+  try {
+    await sendVendorWelcomeEmail(email, name);
+    console.log(`[Resend] Vendor welcome email sent to ${email}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[Resend] Failed to send vendor welcome email:", err.message);
+    res.status(500).json({ error: "Failed to send email" });
+  }
+});
 
 async function sendAdminVendorAppAlert(appData) {
   const adminEmail = "libertydispatchers@gmail.com";
