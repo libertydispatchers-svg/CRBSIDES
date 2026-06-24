@@ -470,16 +470,43 @@ app.post("/api/orders", async (req, res) => {
   if (shipdayApiKey) {
     console.log(`[Shipday] Dispatching sandbox order ${orderId} to Shipday...`);
     try {
+      // Resolve vendor details from Firestore to sync coordinates
+      const usersList = await getCollection("users");
+      const matchedVendor = usersList.find(u => 
+        u.role === 'vendor' && 
+        ((vendorName && u.name && u.name.toLowerCase() === vendorName.toLowerCase()) ||
+         (vendorAddress && u.location && vendorAddress.toLowerCase().includes(u.location.toLowerCase())))
+      );
+      
+      let finalVendorName = "Curbsides: " + (vendorName || "Katz's Delicatessen");
+      let finalVendorAddress = vendorAddress || "Katz's Delicatessen, 205 E Houston St, New York, NY 10002";
+      let pickupLat = null;
+      let pickupLng = null;
+      
+      if (matchedVendor) {
+        finalVendorName = "Curbsides: " + matchedVendor.name;
+        if (matchedVendor.location) finalVendorAddress = matchedVendor.location;
+        if (matchedVendor.coordinates && matchedVendor.coordinates.length === 2) {
+          pickupLat = matchedVendor.coordinates[0];
+          pickupLng = matchedVendor.coordinates[1];
+        }
+      }
+
       const shipdayPayload = {
         orderNumber: orderId,
         customerName: customerName,
         customerAddress: customerAddress,
         customerEmail: customerEmail,
         customerPhoneNumber: customerPhoneNumber,
-        restaurantName: "Curbsides: " + (vendorName || "Katz's Delicatessen"),
-        restaurantAddress: vendorAddress || "Katz's Delicatessen, 205 E Houston St, New York, NY 10002",
+        restaurantName: finalVendorName,
+        restaurantAddress: finalVendorAddress,
         paymentMethod: "credit_card"
       };
+
+      if (pickupLat !== null && pickupLng !== null) {
+        shipdayPayload.pickupLatitude = pickupLat;
+        shipdayPayload.pickupLongitude = pickupLng;
+      }
 
       const response = await axios.post("https://api.shipday.com/orders", shipdayPayload, {
         headers: {
@@ -581,6 +608,132 @@ app.patch("/api/orders/:id", async (req, res) => {
     res.json(updated);
   } else {
     res.status(404).json({ error: "Order not found" });
+  }
+});
+
+app.post("/api/orders/:id/shipday-autodispatch", async (req, res) => {
+  const orderId = req.params.id;
+  try {
+    const order = await getDocument("orders", orderId);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+
+    // Calculate vendor coordinates from Users collection
+    const users = await getCollection("users");
+    const vendor = users.find(u => 
+      u.role === 'vendor' && 
+      (order.vendorAddress.toLowerCase().includes(u.name.toLowerCase()) || 
+       (u.email && order.vendorEmail && u.email.toLowerCase() === order.vendorEmail.toLowerCase()))
+    );
+
+    let vLat = 40.7580;
+    let vLng = -73.9855;
+    if (vendor && vendor.coordinates && vendor.coordinates.length === 2) {
+      vLat = vendor.coordinates[0];
+      vLng = vendor.coordinates[1];
+    }
+
+    // Find online drivers
+    const drivers = users.filter(u => u.role === 'driver' && (u.status === 'online' || u.online === true));
+    if (drivers.length === 0) {
+      return res.status(400).json({ error: "No drivers are currently online. Please check driver app status." });
+    }
+
+    // Helper Haversine distance calculator
+    const calculateHaversine = (lat1, lon1, lat2, lon2) => {
+      const R = 6371; // km
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = 
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      return R * c;
+    };
+
+    // Calculate nearest driver
+    let nearestDriver = null;
+    let minDistance = Infinity;
+
+    drivers.forEach(d => {
+      if (d.coordinates && d.coordinates.length === 2) {
+        const dist = calculateHaversine(vLat, vLng, d.coordinates[0], d.coordinates[1]);
+        if (dist < minDistance) {
+          minDistance = dist;
+          nearestDriver = d;
+        }
+      }
+    });
+
+    if (!nearestDriver) {
+      // Use first online driver as fallback if coordinates are missing
+      nearestDriver = drivers[0];
+      minDistance = 5.0;
+    }
+
+    const driverName = nearestDriver.name || nearestDriver.fullName || "Sarah Chen";
+    const driverPhone = nearestDriver.phone || "555-0199";
+
+    // Update order in Firestore
+    const updateData = {
+      driverId: nearestDriver.id,
+      driverName,
+      driverPhone,
+      status: "Driver Assigned",
+      dispatchedAt: new Date().toISOString()
+    };
+    const updatedOrder = await updateDocument("orders", orderId, updateData);
+
+    // Call Shipday API to assign carrier
+    const shipdayApiKey = process.env.SHIPDAY_API_KEY;
+    if (shipdayApiKey && nearestDriver.shipdayCarrierId) {
+      console.log(`[Autodispatch] Syncing carrier ${nearestDriver.shipdayCarrierId} for order ${orderId} in Shipday...`);
+      try {
+        const activeResponse = await axios.get("https://api.shipday.com/orders", {
+          headers: {
+            "Authorization": `Basic ${shipdayApiKey}`,
+            "Accept": "application/json"
+          }
+        });
+        const activeOrders = activeResponse.data || [];
+        const matchedOrder = activeOrders.find(o => 
+          String(o.orderNumber).trim().toLowerCase() === String(orderId).trim().toLowerCase() ||
+          String(o.orderId).trim() === String(orderId).trim()
+        );
+
+        if (matchedOrder) {
+          const shipdayOrderId = matchedOrder.orderId;
+          const assignUrl = `https://api.shipday.com/orders/assign/${shipdayOrderId}/${nearestDriver.shipdayCarrierId}`;
+          await axios.put(assignUrl, {}, {
+            headers: {
+              "Authorization": `Basic ${shipdayApiKey}`,
+              "Content-Type": "application/json"
+            }
+          });
+          console.log(`[Autodispatch] Assigned in Shipday: ${driverName}`);
+        } else {
+          console.warn(`[Autodispatch] Order ${orderId} not found in Shipday active list.`);
+        }
+      } catch (shipdayErr) {
+        console.error("[Autodispatch] Shipday assign call failed:", shipdayErr.response?.data || shipdayErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully auto-dispatched to nearest driver: ${driverName}`,
+      driver: {
+        id: nearestDriver.id,
+        name: driverName,
+        phone: driverPhone,
+        shipdayCarrierId: nearestDriver.shipdayCarrierId
+      },
+      distanceKm: minDistance,
+      order: updatedOrder
+    });
+  } catch (err) {
+    console.error("[Autodispatch] Internal server error:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -923,16 +1076,43 @@ app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res)
         const customerPhone = payload.shipping_address?.phone || payload.phone || "555-0199";
         const customerEmail = payload.email || "customer@example.com";
 
+        // Resolve vendor details from Firestore to sync coordinates
+        const usersList = await getCollection("users");
+        const matchedVendor = usersList.find(u => 
+          u.role === 'vendor' && 
+          ((vendorName && u.name && u.name.toLowerCase() === vendorName.toLowerCase()) ||
+           (vendorAddress && u.location && vendorAddress.toLowerCase().includes(u.location.toLowerCase())))
+        );
+        
+        let finalVendorName = "Curbsides: " + vendorName;
+        let finalVendorAddress = vendorAddress;
+        let pickupLat = null;
+        let pickupLng = null;
+        
+        if (matchedVendor) {
+          finalVendorName = "Curbsides: " + matchedVendor.name;
+          if (matchedVendor.location) finalVendorAddress = matchedVendor.location;
+          if (matchedVendor.coordinates && matchedVendor.coordinates.length === 2) {
+            pickupLat = matchedVendor.coordinates[0];
+            pickupLng = matchedVendor.coordinates[1];
+          }
+        }
+
         const shipdayPayload = {
           orderNumber: orderId,
           customerName: customerName,
           customerAddress: customerAddress,
           customerEmail: customerEmail,
           customerPhoneNumber: customerPhone,
-          restaurantName: "Curbsides: " + vendorName,
-          restaurantAddress: vendorAddress,
+          restaurantName: finalVendorName,
+          restaurantAddress: finalVendorAddress,
           paymentMethod: "credit_card"
         };
+
+        if (pickupLat !== null && pickupLng !== null) {
+          shipdayPayload.pickupLatitude = pickupLat;
+          shipdayPayload.pickupLongitude = pickupLng;
+        }
 
         await axios.post("https://api.shipday.com/orders", shipdayPayload, {
           headers: {

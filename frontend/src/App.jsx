@@ -188,6 +188,49 @@ export default function App() {
   const [customerOrders, setCustomerOrders] = useState([]);
   const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
   
+  const [vendorApplicationStatus, setVendorApplicationStatus] = useState(null); // null | 'pending' | 'approved' | 'rejected'
+  const [onlineDrivers, setOnlineDrivers] = useState([]);
+  const [vendorToEditLocation, setVendorToEditLocation] = useState(null);
+  const [editLocationAddress, setEditLocationAddress] = useState('');
+  const [editLocationLat, setEditLocationLat] = useState('');
+  const [editLocationLng, setEditLocationLng] = useState('');
+
+  const fetchVendorMenu = async (vendorId) => {
+    try {
+      const { db, collection, getDocs } = await import('./firebase');
+      const menuSnap = await getDocs(collection(db, 'users', vendorId, 'menu'));
+      const menuList = [];
+      menuSnap.forEach(doc => {
+        menuList.push({ id: doc.id, ...doc.data() });
+      });
+      return menuList;
+    } catch (err) {
+      console.error("Failed to fetch vendor menu:", err);
+      return [];
+    }
+  };
+
+  const loadVendorProfile = async (vendor) => {
+    if (!vendor) {
+      setVendorUser(null);
+      return;
+    }
+    const items = await fetchVendorMenu(vendor.id || vendor.uid);
+    setVendorUser({ ...vendor, items });
+  };
+
+  const handleVendorClick = async (vendor) => {
+    if (!vendor) return;
+    setSelectedVendor({ ...vendor, items: vendor.items || [] });
+    setVendorModalTab('menu');
+    try {
+      const items = await fetchVendorMenu(vendor.id);
+      setSelectedVendor({ ...vendor, items });
+    } catch (err) {
+      console.error("Failed to load clicked vendor menu:", err);
+    }
+  };
+  
   // Simulated Live Support Chat State
   const [supportMessages, setSupportMessages] = useState([
     { id: 'm-1', sender: 'admin', text: 'Welcome to CURBSIDES Live Support! How can we assist you today?', timestamp: new Date(Date.now() - 3600000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }
@@ -215,10 +258,7 @@ export default function App() {
   const [adminSupportInput, setAdminSupportInput] = useState('');
 
   // Orders State
-  const [orders, setOrders] = useState([
-    { id: 'shopify-1001', customerAddress: '123 Williams St, New York, NY 10038 (Financial District)', vendorAddress: "Katz's Delicatessen, 205 E Houston St, New York, NY 10002", distance: 1.8, grossPayout: 3.60, netPayout: 3.24, status: 'pending', driverId: null, createdAt: new Date().toISOString() },
-    { id: 'shopify-1002', customerAddress: '45 Cooper Sq, New York, NY 10003 (East Village)', vendorAddress: "Katz's Delicatessen, 205 E Houston St, New York, NY 10002", distance: 0.8, grossPayout: 1.60, netPayout: 1.44, status: 'pending', driverId: null, createdAt: new Date().toISOString() }
-  ]);
+  const [orders, setOrders] = useState([]);
 
   // Synchronize profile forms safely
   useEffect(() => {
@@ -231,14 +271,46 @@ export default function App() {
     }
   }, [vendorActiveSubTab, vendorUser]);
 
-  // Mock Database State for Admin Dashboard (Synced locally)
-  const [drivers, setDrivers] = useState([
-    { id: 'd-1', fullName: 'Carlos Rivera', phone: '555-0144', vehicleType: 'e-bike', boroughs: ['Brooklyn'], status: 'approved', deliveries: 18, earnings: 81.00 },
-    { id: 'd-2', fullName: 'Sarah Chen', phone: '555-0299', vehicleType: 'car', boroughs: ['Manhattan', 'Queens'], status: 'pending', deliveries: 0, earnings: 0.00 }
-  ]);
-  const [vendorApplications, setVendorApplications] = useState([
-    { id: 'v-app-1', name: 'Halal Cart Kings', email: 'kings@halalcart.com', phone: '555-9000', foodType: 'Gyros & Rice', borough: 'Manhattan', status: 'pending' }
-  ]);
+  // Track vendor application status for the logged-in customer
+  useEffect(() => {
+    if (!customerUser || !customerUser.email) {
+      setVendorApplicationStatus(null);
+      return;
+    }
+    
+    let unsubscribe = () => {};
+    
+    async function watchApplication() {
+      try {
+        const { db, collection, query, where, onSnapshot } = await import('./firebase');
+        const q = query(collection(db, 'vendor-applications'), where('email', '==', customerUser.email.toLowerCase().trim()));
+        
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          if (!snapshot.empty) {
+            let status = 'none';
+            snapshot.forEach(doc => {
+              const data = doc.data();
+              if (data.status === 'approved') status = 'approved';
+              else if (data.status === 'pending' && status !== 'approved') status = 'pending';
+              else if (data.status === 'rejected' && status === 'none') status = 'rejected';
+            });
+            setVendorApplicationStatus(status);
+          } else {
+            setVendorApplicationStatus(null);
+          }
+        });
+      } catch (err) {
+        console.error("Failed to query application status:", err);
+      }
+    }
+    
+    watchApplication();
+    return () => unsubscribe();
+  }, [customerUser]);
+
+  // Real Database State for Admin Dashboard
+  const [drivers, setDrivers] = useState([]);
+  const [vendorApplications, setVendorApplications] = useState([]);
   const [shopifyLogs, setShopifyLogs] = useState([
     { timestamp: '2026-06-20 02:40:12', type: 'API FETCH', message: 'Querying 100 products from store catalog...', color: 'text-white' },
     { timestamp: '2026-06-20 02:40:13', type: 'RESOLVED', message: 'Found 4 active food trucks on storefront API.', color: 'text-slate-400' },
@@ -263,15 +335,15 @@ export default function App() {
       { timestamp: time, type, message, color }
     ]);
   };
-  const [financeLogs, setFinanceLogs] = useState([
-    { id: 'f-1', orderId: 'shopify-1001', distance: 1.8, subtotal: 36.00, vendorCommission: 3.60, driverGross: 3.60, driverCommission: 0.36, driverPay: 3.24, platformRev: 3.96, timestamp: '2026-06-19T12:00:00Z' },
-    { id: 'f-2', orderId: 'shopify-1002', distance: 0.8, subtotal: 16.00, vendorCommission: 1.60, driverGross: 1.60, driverCommission: 0.16, driverPay: 1.44, platformRev: 1.76, timestamp: '2026-06-19T12:15:00Z' }
-  ]);
+  const [financeLogs, setFinanceLogs] = useState([]);
 
   // Map Refs
   const mapRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersRef = useRef([]);
+  const trackingMapRef = useRef(null);
+  const trackingMapInstanceRef = useRef(null);
+  const trackingMarkersRef = useRef([]);
 
   // Fetch vendors natively from Firebase on load
   useEffect(() => {
@@ -283,25 +355,41 @@ export default function App() {
         const { db, collection, query, where, onSnapshot } = await import('./firebase');
         const q = query(collection(db, 'users'), where('role', '==', 'vendor'));
         
-        unsubscribe = onSnapshot(q, (snapshot) => {
-          const vendorsList = [];
-          snapshot.forEach(doc => {
-            const data = doc.data();
-            vendorsList.push({
-              id: doc.id,
-              name: data.name || 'Unnamed Vendor',
-              email: data.email || `${(data.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`,
-              borough: data.borough || 'NYC',
-              coordinates: data.coordinates || [40.7128 + (Math.random() - 0.5) * 0.08, -74.0060 + (Math.random() - 0.5) * 0.08],
-              isOpen: data.isOpen !== undefined ? data.isOpen : true,
-              rating: data.rating || 4.8,
-              tags: data.tags || [],
-              logo: data.logo || null,
-              items: data.items || [] // Native menu items stored directly on the vendor document
+        unsubscribe = onSnapshot(q, async (snapshot) => {
+          try {
+            const { db, collection, getDocs } = await import('./firebase');
+            const promises = snapshot.docs.map(async (docSnap) => {
+              const data = docSnap.data();
+              const items = [];
+              try {
+                const menuSnap = await getDocs(collection(db, 'users', docSnap.id, 'menu'));
+                menuSnap.forEach(mDoc => {
+                  items.push({ id: mDoc.id, ...mDoc.data() });
+                });
+              } catch (menuErr) {
+                console.warn(`Failed to fetch menu subcollection for ${docSnap.id}:`, menuErr);
+              }
+              return {
+                id: docSnap.id,
+                name: data.name || 'Unnamed Vendor',
+                email: data.email || `${(data.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`,
+                borough: data.borough || 'NYC',
+                location: data.location || '',
+                coordinates: data.coordinates || [40.7128 + (Math.random() - 0.5) * 0.08, -74.0060 + (Math.random() - 0.5) * 0.08],
+                isOpen: data.isOpen !== undefined ? data.isOpen : true,
+                rating: data.rating || 4.8,
+                tags: data.tags || [],
+                logo: data.logo || null,
+                items: items
+              };
             });
-          });
-          setVendors(vendorsList);
-          setLoading(false);
+            const vendorsList = await Promise.all(promises);
+            setVendors(vendorsList);
+            setLoading(false);
+          } catch (err) {
+            console.error("Error processing vendors list:", err);
+            setLoading(false);
+          }
         });
       } catch (err) {
         console.error("Failed to load native vendors:", err);
@@ -328,6 +416,35 @@ export default function App() {
       setCheckoutPhone(customerUser.phone || '');
     }
   }, [customerUser]);
+
+  // Subscribe to real-time online drivers for the map tab
+  useEffect(() => {
+    let unsubscribe = () => {};
+    
+    async function watchOnlineDrivers() {
+      try {
+        const { db, collection, query, where, onSnapshot } = await import('./firebase');
+        const q = query(
+          collection(db, 'users'), 
+          where('role', '==', 'driver'), 
+          where('status', '==', 'online')
+        );
+        
+        unsubscribe = onSnapshot(q, (snapshot) => {
+          const list = [];
+          snapshot.forEach(doc => {
+            list.push({ id: doc.id, ...doc.data() });
+          });
+          setOnlineDrivers(list);
+        });
+      } catch (err) {
+        console.error("Failed to subscribe to online drivers:", err);
+      }
+    }
+    
+    watchOnlineDrivers();
+    return () => unsubscribe();
+  }, []);
 
   // URL routing and single page navigation listener
   useEffect(() => {
@@ -377,7 +494,7 @@ export default function App() {
       if (vendorId) {
         const found = vendors.find(v => v.id === vendorId || v.id.toLowerCase().includes(vendorId.toLowerCase()));
         if (found) {
-          setSelectedVendor(found);
+          handleVendorClick(found);
           setActiveTab('directory');
         }
       }
@@ -459,21 +576,21 @@ export default function App() {
         const financeQ = query(collection(db, 'finance'), orderBy('timestamp', 'desc'));
         unsubs.push(onSnapshot(financeQ, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          if (data.length > 0) setFinanceLogs(data);
+          setFinanceLogs(data);
         }));
 
         // Real-time driver list
         const driversQ = query(collection(db, 'drivers'));
         unsubs.push(onSnapshot(driversQ, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          if (data.length > 0) setDrivers(data);
+          setDrivers(data);
         }));
 
         // Real-time vendor applications
         const appsQ = query(collection(db, 'vendor-applications'), orderBy('createdAt', 'desc'));
         unsubs.push(onSnapshot(appsQ, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          if (data.length > 0) setVendorApplications(data);
+          setVendorApplications(data);
         }));
 
         // Recent user signups (last 48 hours) for notification bell
@@ -497,9 +614,7 @@ export default function App() {
         const ordersQ = query(collection(db, 'orders'), orderBy('createdAt', 'desc'));
         unsubs.push(onSnapshot(ordersQ, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          if (data.length > 0) {
-            setOrders(data);
-          }
+          setOrders(data);
         }));
       }
     };
@@ -537,8 +652,8 @@ export default function App() {
           window.L.control.zoom({ position: 'bottomright' }).addTo(map);
         }
 
-        // Add markers for vendors
-        if (mapInstanceRef.current && window.L && vendors.length > 0) {
+        // Add markers for vendors and drivers
+        if (mapInstanceRef.current && window.L) {
           // Clear old markers
           markersRef.current.forEach(m => m.remove());
           markersRef.current = [];
@@ -551,10 +666,9 @@ export default function App() {
             "vendor-jerk-chicken": [40.8116, -73.9465]  // Harlem
           };
 
+          // Draw vendors
           vendors.forEach(v => {
             const pos = v.coordinates || coords[v.id] || [40.7128 + (Math.random() - 0.5) * 0.1, -74.0060 + (Math.random() - 0.5) * 0.1];
-            
-            // Custom high contrast white marker icon
             const customIcon = window.L.divIcon({
               className: 'custom-div-icon',
               html: `<div class="w-8 h-8 rounded-full border-2 border-white bg-black flex items-center justify-center font-bold text-white text-xs shadow-lg shadow-white/10">C</div>`,
@@ -576,20 +690,154 @@ export default function App() {
 
             markersRef.current.push(marker);
           });
+
+          // Draw online drivers
+          onlineDrivers.forEach(d => {
+            if (d.coordinates && d.coordinates.length === 2) {
+              const pos = d.coordinates;
+              const driverIcon = window.L.divIcon({
+                className: 'driver-div-icon',
+                html: `<div class="w-8 h-8 rounded-full border-2 border-emerald-500 bg-black flex items-center justify-center font-bold text-emerald-400 text-xs shadow-lg shadow-emerald-500/20">🚲</div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+              });
+
+              const marker = window.L.marker(pos, { icon: driverIcon })
+                .addTo(mapInstanceRef.current)
+                .bindPopup(`
+                  <div class="bg-black text-white p-2 border-2 border-emerald-500 rounded-lg font-sans">
+                    <h4 class="font-bold text-sm text-emerald-400 border-b border-white/20 pb-1 mb-1 uppercase">${d.name || d.fullName || 'Transit Partner'}</h4>
+                    <p class="text-xs text-slate-400 font-semibold mb-1">Transit Partner (Online)</p>
+                    <p class="text-[10px] text-slate-500 font-mono">${d.vehicle || 'Bicycle'}</p>
+                  </div>
+                `, { closeButton: false });
+
+              markersRef.current.push(marker);
+            }
+          });
         }
       }, 100);
     }
-  }, [activeTab, vendors]);
+  }, [activeTab, vendors, onlineDrivers]);
 
   // Handle global method for map popup click
   useEffect(() => {
     window.selectVendorFromMap = (vendorId) => {
       const vendor = vendors.find(v => v.id === vendorId);
       if (vendor) {
-        setSelectedVendor(vendor);
+        handleVendorClick(vendor);
       }
     };
   }, [vendors]);
+
+  // Leaflet Order Tracking Map drawing and updating hook
+  useEffect(() => {
+    if (activeTab === 'track' && searchedOrder) {
+      const initTimer = setTimeout(() => {
+        if (trackingMapRef.current && !trackingMapInstanceRef.current && window.L) {
+          const map = window.L.map(trackingMapRef.current, {
+            zoomControl: false,
+            attributionControl: false
+          }).setView([40.7306, -73.9352], 12);
+
+          trackingMapInstanceRef.current = map;
+
+          window.L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            maxZoom: 19
+          }).addTo(map);
+
+          window.L.control.zoom({ position: 'bottomright' }).addTo(map);
+        }
+
+        // Draw markers
+        if (trackingMapInstanceRef.current && window.L) {
+          // Clear old markers
+          trackingMarkersRef.current.forEach(m => m.remove());
+          trackingMarkersRef.current = [];
+
+          const bounds = [];
+
+          // 1. Vendor Marker
+          let vendorCoords = [40.7580, -73.9855]; // default
+          const matchedV = vendors.find(v => 
+            v.name === searchedOrder.vendor || 
+            (searchedOrder.vendorAddress && searchedOrder.vendorAddress.includes(v.name))
+          );
+          if (matchedV && matchedV.coordinates) {
+            vendorCoords = matchedV.coordinates;
+          }
+          bounds.push(vendorCoords);
+
+          const vendorIcon = window.L.divIcon({
+            className: 'custom-vendor-icon',
+            html: `<div class="w-8 h-8 rounded-full border-2 border-white bg-black flex items-center justify-center font-bold text-white text-xs shadow-lg">C</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+          });
+
+          const vMarker = window.L.marker(vendorCoords, { icon: vendorIcon })
+            .addTo(trackingMapInstanceRef.current)
+            .bindPopup(`<div class="bg-black text-white p-2 border-2 border-white rounded-lg font-sans text-xs uppercase font-bold">${searchedOrder.vendor || 'Vendor'}</div>`, { closeButton: false });
+          trackingMarkersRef.current.push(vMarker);
+
+          // 2. Driver Marker
+          if (searchedOrder.driverId) {
+            const matchedD = onlineDrivers.find(d => 
+              d.id === searchedOrder.driverId || 
+              `shipday-carrier-${d.shipdayCarrierId}` === searchedOrder.driverId
+            );
+            if (matchedD && matchedD.coordinates) {
+              const driverCoords = matchedD.coordinates;
+              bounds.push(driverCoords);
+
+              const driverIcon = window.L.divIcon({
+                className: 'custom-driver-icon',
+                html: `<div class="w-8 h-8 rounded-full border-2 border-emerald-500 bg-black flex items-center justify-center font-bold text-emerald-400 text-xs shadow-lg">🚲</div>`,
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+              });
+
+              const dMarker = window.L.marker(driverCoords, { icon: driverIcon })
+                .addTo(trackingMapInstanceRef.current)
+                .bindPopup(`<div class="bg-black text-white p-2 border-2 border-emerald-500 rounded-lg font-sans text-xs uppercase font-bold">${searchedOrder.driverName || 'Courier'} (Live Location)</div>`, { closeButton: false });
+              trackingMarkersRef.current.push(dMarker);
+            }
+          }
+
+          // 3. Customer Marker (mock customer location near vendor for demo)
+          let customerCoords = [vendorCoords[0] + 0.015, vendorCoords[1] - 0.015];
+          bounds.push(customerCoords);
+
+          const customerIcon = window.L.divIcon({
+            className: 'custom-customer-icon',
+            html: `<div class="w-8 h-8 rounded-full border-2 border-amber-500 bg-black flex items-center justify-center font-bold text-amber-400 text-xs shadow-lg">📍</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+          });
+
+          const cMarker = window.L.marker(customerCoords, { icon: customerIcon })
+            .addTo(trackingMapInstanceRef.current)
+            .bindPopup(`<div class="bg-black text-white p-2 border-2 border-amber-500 rounded-lg font-sans text-xs uppercase font-bold">Your Delivery Location</div>`, { closeButton: false });
+          trackingMarkersRef.current.push(cMarker);
+
+          // Fit bounds
+          if (bounds.length > 0) {
+            trackingMapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] });
+          }
+        }
+      }, 200);
+
+      return () => clearTimeout(initTimer);
+    }
+  }, [activeTab, searchedOrder, onlineDrivers, vendors]);
+
+  // Clean up tracking map when searchedOrder becomes null or tab shifts
+  useEffect(() => {
+    if ((!searchedOrder || activeTab !== 'track') && trackingMapInstanceRef.current) {
+      trackingMapInstanceRef.current.remove();
+      trackingMapInstanceRef.current = null;
+    }
+  }, [searchedOrder, activeTab]);
 
   // Filter vendors
   const filteredVendors = vendors.filter(v => {
@@ -749,7 +997,7 @@ export default function App() {
         } else if (profileData.role === 'vendor') {
           const matchedVendor = vendors.find(v => v.email?.toLowerCase() === profileData.email?.toLowerCase() || v.name?.toLowerCase().includes(profileData.name?.toLowerCase()));
           if (matchedVendor) {
-            setVendorUser(matchedVendor);
+            loadVendorProfile(matchedVendor);
             setSelectedPortalVendorId(matchedVendor.id);
           } else {
             const sessionVendor = {
@@ -760,11 +1008,11 @@ export default function App() {
               isOpen: profileData.isOpen ?? false,
               rating: profileData.rating || 5.0,
               tags: profileData.tags || ['Verified', 'Street Food'],
-              items: profileData.items || [],
+              items: [],
               earnings: profileData.earnings || 0,
               logo: profileData.photoURL || null,
             };
-            setVendorUser(sessionVendor);
+            loadVendorProfile(sessionVendor);
             setSelectedPortalVendorId(sessionVendor.id);
           }
           setVendorActiveSubTab('menu');
@@ -1119,6 +1367,94 @@ export default function App() {
     }
   };
 
+  const handleAutoGeocode = async () => {
+    if (!editLocationAddress.trim()) {
+      alert("Please enter an address first.");
+      return;
+    }
+    
+    try {
+      const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(editLocationAddress)}&limit=1`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.length > 0) {
+          setEditLocationLat(parseFloat(data[0].lat).toFixed(6));
+          setEditLocationLng(parseFloat(data[0].lon).toFixed(6));
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn("OSM Geocode failed, using dictionary/fallback:", e);
+    }
+    
+    const lower = editLocationAddress.toLowerCase();
+    const dictionary = {
+      "lower east side": [40.7150, -73.9843],
+      "east village": [40.7265, -73.9815],
+      "brooklyn heights": [40.6960, -73.9933],
+      "williamsburg": [40.7081, -73.9571],
+      "harlem": [40.8116, -73.9465],
+      "astoria": [40.7644, -73.9235],
+      "flushing": [40.7673, -73.8331],
+      "dumbo": [40.7033, -73.9889],
+      "midtown": [40.7580, -73.9855],
+      "katz": [40.7222, -73.9874]
+    };
+    
+    let matched = false;
+    for (const [key, coords] of Object.entries(dictionary)) {
+      if (lower.includes(key)) {
+        setEditLocationLat(coords[0]);
+        setEditLocationLng(coords[1]);
+        matched = true;
+        break;
+      }
+    }
+    
+    if (!matched) {
+      const lat = (40.7128 + (Math.random() - 0.5) * 0.05).toFixed(6);
+      const lng = (-74.0060 + (Math.random() - 0.5) * 0.05).toFixed(6);
+      setEditLocationLat(lat);
+      setEditLocationLng(lng);
+    }
+  };
+
+  const handleSaveVendorLocation = async (e) => {
+    if (e) e.preventDefault();
+    if (!vendorToEditLocation) return;
+    
+    if (!editLocationAddress.trim() || !editLocationLat || !editLocationLng) {
+      alert("Please enter a valid address, latitude, and longitude.");
+      return;
+    }
+    
+    try {
+      const { db, doc, updateDoc } = await import('./firebase');
+      
+      const lat = parseFloat(editLocationLat);
+      const lng = parseFloat(editLocationLng);
+      
+      if (isNaN(lat) || isNaN(lng)) {
+        alert("Latitude and Longitude must be valid numbers.");
+        return;
+      }
+      
+      await updateDoc(doc(db, 'users', vendorToEditLocation.id), {
+        location: editLocationAddress.trim(),
+        coordinates: [lat, lng]
+      });
+      
+      alert(`✅ Pickup location for ${vendorToEditLocation.name} updated successfully!`);
+      
+      setVendorToEditLocation(null);
+      setEditLocationAddress('');
+      setEditLocationLat('');
+      setEditLocationLng('');
+    } catch (err) {
+      console.error("Failed to update vendor pickup location:", err);
+      alert(`Error updating vendor location: ${err.message}`);
+    }
+  };
 
   // Handle Vendor GPS Location Update
   const handleUpdateGps = () => {
@@ -1259,7 +1595,7 @@ export default function App() {
       );
 
       if (matchedVendor) {
-        setVendorUser(matchedVendor);
+        loadVendorProfile(matchedVendor);
         setSelectedPortalVendorId(matchedVendor.id);
       } else {
         const sessionVendor = {
@@ -1270,11 +1606,11 @@ export default function App() {
           isOpen: userData.isOpen ?? true,
           rating: userData.rating || 5.0,
           tags: userData.tags || ['Verified', 'Street Food'],
-          items: userData.items || [],
+          items: [],
           earnings: userData.earnings || 0,
           logo: userData.logo || null,
         };
-        setVendorUser(sessionVendor);
+        loadVendorProfile(sessionVendor);
         setSelectedPortalVendorId(sessionVendor.id);
       }
 
@@ -1297,6 +1633,23 @@ export default function App() {
   const handleUpdateOrderStatus = async (orderId, newStatus) => {
     try {
       const { db, doc, updateDoc } = await import('./firebase');
+
+      if (newStatus === 'Driver Assigned') {
+        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+        const res = await fetch(`${BACKEND_URL}/api/orders/${orderId}/shipday-autodispatch`, {
+          method: 'POST'
+        });
+        if (res.ok) {
+          const data = await res.json();
+          alert(`✅ Order marked ready and dispatched to nearest online driver: ${data.driver.name} (${(data.distanceKm || 0).toFixed(1)} km away)`);
+          return;
+        } else {
+          const errData = await res.json();
+          console.warn("Autodispatch warning:", errData);
+          alert(`⚠️ Autodispatch: ${errData.error || 'No online drivers found'}. Order status marked as ready.`);
+        }
+      }
+      
       await updateDoc(doc(db, 'orders', orderId), {
         status: newStatus
       });
@@ -1471,7 +1824,7 @@ export default function App() {
           v => v.email?.toLowerCase() === user.email?.toLowerCase()
         );
         if (matchedVendor) {
-          setVendorUser(matchedVendor);
+          loadVendorProfile(matchedVendor);
           setSelectedPortalVendorId(matchedVendor.id);
         } else {
           // Vendor profile not in local state yet — build from user record
@@ -1486,9 +1839,9 @@ export default function App() {
             isOpen: user.isOpen !== undefined ? user.isOpen : false,
             rating: user.rating || 5.0,
             tags: user.tags || ['Approved'],
-            items: user.items || []
+            items: []
           };
-          setVendorUser(vendorFromUser);
+          loadVendorProfile(vendorFromUser);
           setSelectedPortalVendorId(vendorFromUser.id);
         }
         setVendorActiveSubTab('menu');
@@ -1760,10 +2113,8 @@ export default function App() {
     };
 
     try {
-      const { db, doc, updateDoc, arrayUnion } = await import('./firebase');
-      await updateDoc(doc(db, 'users', vendorUser.id), {
-        items: arrayUnion(newItem)
-      });
+      const { db, doc, setDoc } = await import('./firebase');
+      await setDoc(doc(db, 'users', vendorUser.id, 'menu', newItemId), newItem);
       // Update local state temporarily for fast UI response
       setVendorUser(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
       
@@ -1813,6 +2164,14 @@ export default function App() {
     if (!editingItem || !editMenuName || !editMenuPrice || !vendorUser) return;
 
     try {
+      const { db, doc, updateDoc } = await import('./firebase');
+      await updateDoc(doc(db, 'users', vendorUser.id, 'menu', editingItem.id), {
+        name: editMenuName,
+        description: editMenuDesc,
+        price: parseFloat(editMenuPrice),
+        image: editMenuImage || editingItem.image
+      });
+      
       const updatedItems = (vendorUser.items || []).map(item => {
         if (item.id === editingItem.id) {
           return {
@@ -1825,10 +2184,6 @@ export default function App() {
         }
         return item;
       });
-
-      const { db, doc, updateDoc } = await import('./firebase');
-      await updateDoc(doc(db, 'users', vendorUser.id), { items: updatedItems });
-      
       setVendorUser(prev => ({ ...prev, items: updatedItems }));
     } catch (err) {
       console.error("Failed to edit menu item:", err);
@@ -1849,10 +2204,10 @@ export default function App() {
     if (!confirm('Are you sure you want to delete this menu item?')) return;
 
     try {
-      const updatedItems = (vendorUser.items || []).filter(item => item.id !== itemId);
-      const { db, doc, updateDoc } = await import('./firebase');
-      await updateDoc(doc(db, 'users', vendorUser.id), { items: updatedItems });
+      const { db, doc, deleteDoc } = await import('./firebase');
+      await deleteDoc(doc(db, 'users', vendorUser.id, 'menu', itemId));
       
+      const updatedItems = (vendorUser.items || []).filter(item => item.id !== itemId);
       setVendorUser(prev => ({ ...prev, items: updatedItems }));
     } catch (err) {
       console.error("Failed to delete menu item:", err);
@@ -2005,9 +2360,9 @@ export default function App() {
                         const response = await fetchVendorsAndProducts();
                         const matchedV = response.find(v => v.email?.toLowerCase() === verificationPendingEmail.toLowerCase() || v.name.toLowerCase().includes(data.user.name.toLowerCase()));
                         if (matchedV) {
-                          setVendorUser(matchedV);
+                          loadVendorProfile(matchedV);
                         } else {
-                          setVendorUser({
+                          loadVendorProfile({
                             id: data.user.associatedId || 'vendor-new',
                             name: data.user.name,
                             email: verificationPendingEmail,
@@ -2182,6 +2537,24 @@ export default function App() {
               >
                 My Account
               </button>
+              {vendorApplicationStatus === 'pending' && (
+                <button
+                  disabled
+                  className="px-3 py-1.5 border border-zinc-700 rounded-lg text-xs font-bold uppercase bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-60 flex items-center gap-1.5"
+                  title="Your vendor application is pending administrator approval."
+                >
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                  Portal (Pending)
+                </button>
+              )}
+              {vendorApplicationStatus === 'approved' && (
+                <button
+                  onClick={() => setActiveTab('vendor-portal')}
+                  className="px-3 py-1.5 border-2 border-emerald-500 rounded-lg text-xs font-bold uppercase bg-black text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer font-heading flex items-center gap-1.5"
+                >
+                  Vendor Portal
+                </button>
+              )}
               <button
                 onClick={() => setIsCartOpen(true)}
                 className="relative px-3.5 py-1.5 border-2 border-white rounded-lg bg-white text-black font-bold text-xs uppercase flex items-center gap-1.5 hover:bg-black hover:text-white transition-all cursor-pointer"
@@ -3108,41 +3481,11 @@ export default function App() {
                                 <td colSpan="7" className="p-4 text-center text-slate-500 italic animate-pulse">Loading orders...</td>
                               </tr>
                             ) : customerOrders.length === 0 ? (
-                              <>
-                                {/* Default demo items */}
-                                <tr className="hover:bg-zinc-900 transition-colors">
-                                  <td className="p-3 font-bold text-white font-mono uppercase font-semibold">shopify-1001</td>
-                                  <td className="p-3 font-semibold uppercase">Korean BBQ Taco Truck</td>
-                                  <td className="p-3 text-slate-500">06/19/2026</td>
-                                  <td className="p-3">3x Bulgogi Beef Taco, 1x Kimchi Fries</td>
-                                  <td className="p-3 font-mono font-semibold">$22.00</td>
-                                  <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">Delivered</td>
-                                  <td className="p-3 text-right">
-                                    <button
-                                      onClick={() => handleOpenTrackingModal('shopify-1001')}
-                                      className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                                    >
-                                      Track Details
-                                    </button>
-                                  </td>
-                                </tr>
-                                <tr className="hover:bg-zinc-900 transition-colors">
-                                  <td className="p-3 font-bold text-white font-mono uppercase font-semibold">shopify-1002</td>
-                                  <td className="p-3 font-semibold uppercase">Empanada Guy</td>
-                                  <td className="p-3 text-slate-500">06/18/2026</td>
-                                  <td className="p-3">2x Beef & Cheese, 2x Chipotle Chicken</td>
-                                  <td className="p-3 font-mono font-semibold">$15.00</td>
-                                  <td className="p-3 text-emerald-400 font-bold uppercase text-[10px]">Delivered</td>
-                                  <td className="p-3 text-right">
-                                    <button
-                                      onClick={() => handleOpenTrackingModal('shopify-1002')}
-                                      className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                                    >
-                                      Track Details
-                                    </button>
-                                  </td>
-                                </tr>
-                              </>
+                              <tr>
+                                <td colSpan="7" className="p-8 text-center text-slate-500 font-mono">
+                                  No order history found.
+                                </td>
+                              </tr>
                             ) : (
                               customerOrders.map(order => (
                                 <tr key={order.id} className="hover:bg-zinc-900 transition-colors">
@@ -3299,7 +3642,15 @@ export default function App() {
                           </div>
                           <div className="border border-white/10 p-3 rounded-xl bg-zinc-950/40">
                             <span className="text-slate-400 block mb-1">Courier</span>
-                            <span className="text-white font-bold truncate block">{searchedOrder.driverName}</span>
+                            <span className="text-white font-bold truncate block">{searchedOrder.driverName || "Assigning Courier..."}</span>
+                          </div>
+                        </div>
+
+                        {/* Live Transit Map */}
+                        <div className="h-60 rounded-xl border border-white/20 bg-zinc-950 overflow-hidden relative">
+                          <div ref={trackingMapRef} className="w-full h-full z-0" />
+                          <div className="absolute top-2 left-2 z-10 px-2 py-0.5 bg-black/85 border border-white/20 rounded text-[9px] uppercase tracking-wider font-extrabold text-emerald-400">
+                            Live Transit Map
                           </div>
                         </div>
 
@@ -3331,16 +3682,25 @@ export default function App() {
                         )}
 
                         {/* Shipday Live GPS Map Tracker */}
-                        {searchedOrder.trackingLink && (
-                          <a 
-                            href={searchedOrder.trackingLink} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            className="flex items-center justify-center gap-2 w-full py-3 bg-white text-black font-extrabold text-xs uppercase rounded-xl border border-white hover:bg-black hover:text-white transition-all text-center tracking-wider font-heading cursor-pointer"
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                            Open Live GPS Tracking Map
-                          </a>
+                        {searchedOrder.trackingLink ? (
+                          <div className="border border-white/20 rounded-xl overflow-hidden bg-zinc-950 aspect-[4/3] w-full h-[400px]">
+                            <iframe 
+                              src={searchedOrder.trackingLink} 
+                              title="Order Tracking Map" 
+                              className="w-full h-full border-none"
+                              allow="geolocation"
+                            />
+                          </div>
+                        ) : (
+                          <div className="border border-white/20 rounded-xl p-6 bg-zinc-950/40 text-center space-y-2">
+                            <span className="text-[10px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2.5 py-1 rounded font-bold uppercase tracking-wider font-heading">
+                              Preparing Flavour
+                            </span>
+                            <h4 className="text-xs font-bold uppercase text-white mt-2">White-Labeled Tracker Pending</h4>
+                            <p className="text-[11px] text-slate-400 leading-relaxed max-w-sm mx-auto">
+                              Your order is being prepped by the vendor. The live tracking map iframe will initialize here automatically once a dispatch courier accepts the shipment.
+                            </p>
+                          </div>
                         )}
 
                         {/* Call Courier Option */}
@@ -5915,6 +6275,7 @@ export default function App() {
                             <th className="py-2.5">Active Menu Items</th>
                             <th className="py-2.5">Rating</th>
                             <th className="py-2.5">Status</th>
+                            <th className="py-2.5 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/10">
@@ -5929,11 +6290,101 @@ export default function App() {
                                   ACTIVE
                                 </span>
                               </td>
+                              <td className="py-3 text-right">
+                                <button
+                                  onClick={() => {
+                                    setVendorToEditLocation(vendor);
+                                    setEditLocationAddress(vendor.location || vendor.borough || '');
+                                    setEditLocationLat((vendor.coordinates && vendor.coordinates[0]) || '40.7128');
+                                    setEditLocationLng((vendor.coordinates && vendor.coordinates[1]) || '-74.0060');
+                                  }}
+                                  className="px-2.5 py-1 border border-emerald-500 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer font-heading"
+                                >
+                                  Set Pickup Point
+                                </button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
                     </div>
+
+                    {vendorToEditLocation && (
+                      <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+                        <div className="max-w-md w-full border-2 border-white rounded-2xl p-6 bg-zinc-950 shadow-2xl space-y-6 animate-fade-in animate-scale-up text-white font-sans">
+                          <div className="text-center">
+                            <span className="bg-emerald-500 text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded">
+                              Pickup Location Manager
+                            </span>
+                            <h2 className="text-2xl font-bold uppercase font-heading mt-2">Set Pickup Point</h2>
+                            <p className="text-xs text-slate-400 mt-1">Configure coordinates for {vendorToEditLocation.name}</p>
+                          </div>
+
+                          <form onSubmit={handleSaveVendorLocation} className="space-y-4">
+                            <div>
+                              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Pickup Address</label>
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  placeholder="e.g. 205 E Houston St, New York, NY"
+                                  value={editLocationAddress}
+                                  onChange={(e) => setEditLocationAddress(e.target.value)}
+                                  className="flex-1 px-4 py-2.5 rounded-xl bg-black border border-white/20 text-xs text-white"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleAutoGeocode}
+                                  className="px-3 py-2 border border-white/30 rounded-xl bg-white/5 hover:bg-white/10 text-xs font-bold uppercase transition-all"
+                                >
+                                  Auto-Find
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Latitude</label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  placeholder="40.7128"
+                                  value={editLocationLat}
+                                  onChange={(e) => setEditLocationLat(e.target.value)}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/20 text-xs text-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">Longitude</label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  placeholder="-74.0060"
+                                  value={editLocationLng}
+                                  onChange={(e) => setEditLocationLng(e.target.value)}
+                                  className="w-full px-4 py-2.5 rounded-xl bg-black border border-white/20 text-xs text-white"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="flex gap-3 pt-2">
+                              <button
+                                type="button"
+                                onClick={() => setVendorToEditLocation(null)}
+                                className="flex-1 py-3 border border-white/20 rounded-xl bg-transparent text-white font-bold text-xs uppercase hover:bg-white/10 transition-all cursor-pointer font-heading"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="submit"
+                                className="flex-1 py-3 border-2 border-white rounded-xl bg-white text-black font-bold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                              >
+                                Save Settings
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -6271,7 +6722,7 @@ export default function App() {
                   <button
                     onClick={() => {
                       const vendor = vendors.find(v => v.id === 'vendor-korean-taco');
-                      if (vendor) setSelectedVendor(vendor);
+                      if (vendor) handleVendorClick(vendor);
                     }}
                     className="px-4 py-2 border-2 border-white rounded-lg bg-white text-black text-xs font-bold uppercase flex items-center gap-1.5 hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
                   >
@@ -6326,8 +6777,7 @@ export default function App() {
                     <div 
                       key={vendor.id} 
                       onClick={() => {
-                        setSelectedVendor(vendor);
-                        setVendorModalTab('menu');
+                        handleVendorClick(vendor);
                       }}
                       className="p-4 sm:p-6 flex justify-between items-center hover:bg-zinc-950 transition-colors cursor-pointer"
                     >
@@ -6984,16 +7434,25 @@ export default function App() {
                 )}
 
                 {/* Shipday Live GPS Map Tracker */}
-                {trackingModalOrder.trackingLink && (
-                  <a 
-                    href={trackingModalOrder.trackingLink} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="flex items-center justify-center gap-2 w-full py-3 bg-white text-black font-extrabold text-xs uppercase rounded-xl border border-white hover:bg-black hover:text-white transition-all text-center tracking-wider font-heading cursor-pointer"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    Open Live GPS Tracking Map
-                  </a>
+                {trackingModalOrder.trackingLink ? (
+                  <div className="border border-white/20 rounded-xl overflow-hidden bg-zinc-950 aspect-[4/3] w-full h-[300px]">
+                    <iframe 
+                      src={trackingModalOrder.trackingLink} 
+                      title="Order Tracking Map" 
+                      className="w-full h-full border-none"
+                      allow="geolocation"
+                    />
+                  </div>
+                ) : (
+                  <div className="border border-white/20 rounded-xl p-4 bg-zinc-950/40 text-center space-y-1">
+                    <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded font-bold uppercase tracking-wider font-heading">
+                      Awaiting Driver Pick Up
+                    </span>
+                    <h4 className="text-xs font-bold uppercase text-white mt-1">Live Map Tracker Pending</h4>
+                    <p className="text-[10px] text-slate-400 leading-relaxed">
+                      The live tracking iframe will activate here as soon as a delivery driver is dispatched to collect your order.
+                    </p>
+                  </div>
                 )}
 
                 {/* Call Courier Option */}

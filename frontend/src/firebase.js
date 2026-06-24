@@ -33,10 +33,11 @@ if (!USE_LOCAL_MOCK) {
   dbSdk = firestore.getFirestore(app);
   functionsSdk = getFunctions(app);
 
-  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-    firestore.connectFirestoreEmulator(dbSdk, '127.0.0.1', 8080);
-    connectFunctionsEmulator(functionsSdk, '127.0.0.1', 5001);
-  }
+  // Connect to production Firebase directly in all environments
+  // if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  //   firestore.connectFirestoreEmulator(dbSdk, '127.0.0.1', 8080);
+  //   connectFunctionsEmulator(functionsSdk, '127.0.0.1', 5001);
+  // }
 }
 
 // 2. Local Mock Layer implementation
@@ -176,4 +177,8 @@ export const serverTimestamp = firestore.serverTimestamp;
 export const getDocs = (queryRef) => {
   if (USE_LOCAL_MOCK) return Promise.resolve({ empty: true, docs: [] });
   return firestore.getDocs(queryRef);
+};
+export const deleteDoc = (docRef) => {
+  if (USE_LOCAL_MOCK) return Promise.resolve();
+  return firestore.deleteDoc(docRef);
 };
