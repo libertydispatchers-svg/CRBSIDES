@@ -415,56 +415,83 @@ export default function App() {
 
   useEffect(() => {
     let unsubscribe = () => {};
+    let userUnsubscribe = () => {};
     const initAuthWatcher = async () => {
       try {
-        const { auth, db, doc, getDoc, collection, query, where, getDocs } = await import('./firebase');
+        const { auth, db, doc, onSnapshot, collection, query, where, getDocs } = await import('./firebase');
         const { onAuthStateChanged } = await import('firebase/auth');
         unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-          if (!firebaseUser) return;
-          const directDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-          let profile = directDoc.exists() ? { id: directDoc.id, ...directDoc.data() } : null;
-          if (!profile && firebaseUser.email) {
-            const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email.toLowerCase().trim()));
-            const snap = await getDocs(q);
-            if (!snap.empty) {
-              profile = { id: snap.docs[0].id, ...snap.docs[0].data() };
-            }
+          if (userUnsubscribe) userUnsubscribe();
+          if (!firebaseUser) {
+            setVendorUser(null);
+            setCustomerUser(null);
+            setDriverUser(null);
+            setUserSession(null);
+            return;
           }
-          if (!profile) return;
-          if (profile.role === 'vendor') {
-            await loadVendorProfile({
-              id: profile.id,
-              name: profile.name || firebaseUser.displayName || 'Vendor',
-              email: profile.email || firebaseUser.email || '',
-              borough: profile.borough || 'Manhattan, NYC',
-              location: profile.location || '',
-              coordinates: profile.coordinates || null,
-              isOpen: profile.isOpen ?? false,
-              rating: profile.rating || 5.0,
-              tags: profile.tags || ['Approved'],
-              items: [],
-              earnings: profile.earnings || 0,
-              logo: profile.logo || profile.photoURL || null
-            });
-            setSelectedPortalVendorId(profile.id);
-          } else if (profile.role === 'driver') {
-            setDriverUser(profile);
-          } else {
-            setCustomerUser(profile);
-            setCustomerCards(profile.cards || []);
-            // Restore admin auth state if this is the admin email
-            if (profile.email === 'libertydispatchers@gmail.com') {
-              setIsStaffAuthenticated(true);
-              setIsAdminAuthenticated(true);
+          userUnsubscribe = onSnapshot(doc(db, 'users', firebaseUser.uid), async (docSnap) => {
+            let profile = docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
+            if (!profile && firebaseUser.email) {
+              const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email.toLowerCase().trim()));
+              const snap = await getDocs(q);
+              if (!snap.empty) {
+                profile = { id: snap.docs[0].id, ...snap.docs[0].data() };
+              }
             }
-          }
+            if (!profile && firebaseUser.phoneNumber) {
+              const q = query(collection(db, 'users'), where('phone', '==', firebaseUser.phoneNumber));
+              const snap = await getDocs(q);
+              if (!snap.empty) {
+                profile = { id: snap.docs[0].id, ...snap.docs[0].data() };
+              }
+            }
+            if (!profile) return;
+            setUserSession(profile);
+            
+            if (profile.role === 'vendor') {
+              setCustomerUser(null);
+              setDriverUser(null);
+              await loadVendorProfile({
+                id: profile.id,
+                name: profile.name || firebaseUser.displayName || 'Vendor',
+                email: profile.email || firebaseUser.email || '',
+                borough: profile.borough || 'Manhattan, NYC',
+                location: profile.location || '',
+                coordinates: profile.coordinates || null,
+                isOpen: profile.isOpen ?? false,
+                rating: profile.rating || 5.0,
+                tags: profile.tags || ['Approved'],
+                items: [],
+                earnings: profile.earnings || 0,
+                logo: profile.logo || profile.photoURL || null
+              });
+              setSelectedPortalVendorId(profile.id);
+            } else if (profile.role === 'driver') {
+              setVendorUser(null);
+              setCustomerUser(null);
+              setDriverUser(profile);
+            } else {
+              setVendorUser(null);
+              setDriverUser(null);
+              setCustomerUser(profile);
+              setCustomerCards(profile.cards || []);
+              // Restore admin auth state if this is the admin email
+              if (profile.email === 'libertydispatchers@gmail.com') {
+                setIsStaffAuthenticated(true);
+                setIsAdminAuthenticated(true);
+              }
+            }
+          });
         });
       } catch (err) {
         console.error('Auth restore subscription failed:', err);
       }
     };
     initAuthWatcher();
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (userUnsubscribe) userUnsubscribe();
+    };
   }, []);
 
   // Real Database State for Admin Dashboard
@@ -1120,11 +1147,11 @@ export default function App() {
 
   // Filter vendors
   const filteredVendors = vendors.filter(v => {
-    const matchesSearch = v.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      v.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    const matchesSearch = (v.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+      v.items.some(item => (item.name || item.title || '').toLowerCase().includes(searchQuery.toLowerCase()));
     
     const matchesBorough = selectedBorough === 'All' || 
-      v.borough.toLowerCase().includes(selectedBorough.toLowerCase());
+      (v.borough || '').toLowerCase().includes(selectedBorough.toLowerCase());
     return matchesSearch && matchesBorough;
   }).sort((a, b) => {
     if (!viewerCoordinates) return 0;
@@ -2268,9 +2295,9 @@ export default function App() {
         } else if (email.toLowerCase().includes('vendor') || email.toLowerCase().includes('truck')) {
           const foundVendor = vendors.find(v => 
             v.email?.toLowerCase() === email.toLowerCase() || 
-            (email.toLowerCase().includes('kings') && v.name.toLowerCase().includes('kings')) ||
-            (email.toLowerCase().includes('taco') && v.name.toLowerCase().includes('taco')) ||
-            (email.toLowerCase().includes('empanada') && v.name.toLowerCase().includes('empanada'))
+            (email.toLowerCase().includes('kings') && (v.name || '').toLowerCase().includes('kings')) ||
+            (email.toLowerCase().includes('taco') && (v.name || '').toLowerCase().includes('taco')) ||
+            (email.toLowerCase().includes('empanada') && (v.name || '').toLowerCase().includes('empanada'))
           );
           
           if (foundVendor) {
@@ -4781,7 +4808,7 @@ export default function App() {
                     >
                       Orders
                       {(() => {
-                        const cleanUser = vendorUser.name.toLowerCase()
+                        const cleanUser = (vendorUser.name || '').toLowerCase()
                           .replace('truck', '')
                           .replace('spot', '')
                           .replace('guy', '')
@@ -6656,111 +6683,6 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Driver Review Modal */}
-                    {driverReviewModal && (
-                      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[999] flex items-center justify-center p-4 animate-fade-in">
-                        <div className="bg-black border-2 border-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col">
-                          <button onClick={() => setDriverReviewModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white z-10 cursor-pointer">
-                            <X className="w-5 h-5" />
-                          </button>
-                          <div className="p-6 border-b border-white/20 bg-zinc-950">
-                            <h3 className="text-xl font-bold uppercase text-white tracking-widest font-heading">Review Driver Application</h3>
-                          </div>
-                          <div className="p-6 space-y-4 text-sm text-slate-300 flex-1 overflow-y-auto">
-                            <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Full Name</p>
-                                <p className="font-semibold text-white">{driverReviewModal.fullName}</p>
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Email</p>
-                                <p className="text-white truncate">{driverReviewModal.email}</p>
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Phone Number</p>
-                                <p className="text-white font-mono">{driverReviewModal.phone}</p>
-                              </div>
-                              <div>
-                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Vehicle Type</p>
-                                <p className="text-white capitalize">{driverReviewModal.vehicleType}</p>
-                              </div>
-                              <div className="col-span-2">
-                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Service Boroughs</p>
-                                <p className="text-white">{driverReviewModal.boroughs.join(', ')}</p>
-                              </div>
-                              {driverReviewModal.shipdayCarrierId && (
-                                <div className="col-span-2">
-                                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Shipday Carrier ID</p>
-                                  <p className="text-white font-mono bg-zinc-900 p-2 rounded border border-emerald-500/30">{driverReviewModal.shipdayCarrierId}</p>
-                                </div>
-                              )}
-                            </div>
-                            
-                            {driverReviewModal.status === 'pending' && (
-                              <div className="mt-6 border border-emerald-500/30 bg-emerald-950/20 p-4 rounded-xl">
-                                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                  <ShieldCheck className="w-4 h-4" />
-                                  Driver Portal Access
-                                </h4>
-                                <p className="text-[11px] text-slate-400 leading-relaxed">
-                                  Approving this driver will register them in Shipday dispatch system and send them their login credentials via email.
-                                </p>
-                              </div>
-                            )}
-
-                            {driverReviewModal.status === 'approved' && (
-                              <div className="mt-6 border border-cyan-500/30 bg-cyan-950/20 p-4 rounded-xl">
-                                <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-widest mb-2">Driver Onboarding Instructions</h4>
-                                <div className="text-[11px] text-slate-300 leading-relaxed space-y-2">
-                                  <p><strong>1.</strong> Driver received welcome email with credentials</p>
-                                  <p><strong>2.</strong> Login at: <code className="bg-black px-1 py-0.5 rounded font-mono">curbsides.xyz</code></p>
-                                  <p><strong>3.</strong> Navigate to "Driver App" to start receiving orders</p>
-                                  <p><strong>4.</strong> Shipday Carrier ID: <strong>{driverReviewModal.shipdayCarrierId || 'N/A'}</strong></p>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div className="p-6 border-t border-white/20 bg-zinc-950 flex justify-end gap-3">
-                            <button 
-                              onClick={() => setDriverReviewModal(null)}
-                              className="px-5 py-2 border border-white/20 rounded-lg text-xs font-bold uppercase text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
-                            >
-                              Close
-                            </button>
-                            {driverReviewModal.status === 'pending' && (
-                              <button 
-                                onClick={async () => {
-                                  const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-                                  try {
-                                    const res = await fetch(`${BACKEND_URL}/api/drivers/${driverReviewModal.id}`, {
-                                      method: 'PATCH',
-                                      headers: { 'Content-Type': 'application/json' },
-                                      body: JSON.stringify({ status: 'approved' })
-                                    });
-                                    if (!res.ok) {
-                                      const errorData = await res.json();
-                                      throw new Error(errorData.error || `HTTP ${res.status}`);
-                                    }
-                                    const updated = await res.json();
-                                    setDrivers(prev => prev.map(d => d.id === driverReviewModal.id ? updated : d));
-                                    alert(`✅ ${updated.fullName} approved${updated.shipdayCarrierId ? ' and synced to Shipday' : ''}.`);
-                                    setDriverReviewModal(null);
-                                  } catch (err) {
-                                    console.error('Driver approval error:', err);
-                                    alert(`Failed to approve driver: ${err.message}`);
-                                  }
-                                }}
-                                className="px-5 py-2 border border-emerald-500 bg-emerald-500 text-black rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-emerald-400 hover:border-emerald-400 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer"
-                              >
-                                <CheckCircle className="w-4 h-4" />
-                                Approve Driver
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
                     {/* Multi-Truck Fleet Upgrade Requests */}
                     <div className="border-t border-white/20 pt-6 mt-6 animate-fade-in">
                       <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">Multi-Truck Fleet Upgrade Requests</h3>
@@ -7226,7 +7148,7 @@ export default function App() {
                         {(() => {
                           const config = getShopifyConfig();
                           const hasStoredAdminToken = !!localStorage.getItem('curbsides_shopify_admin_token');
-                          const connected = (config.domain && config.token && hasStoredAdminToken) || isShopifyConnected();
+                          const connected = (config.domain && hasStoredAdminToken) || isShopifyConnected();
                           return connected;
                         })() ? (
                           <span className="flex items-center gap-1.5 text-[9px] bg-emerald-950/20 border border-emerald-500/30 px-2 py-0.5 rounded text-emerald-400 font-bold uppercase tracking-wider">
@@ -7416,7 +7338,113 @@ export default function App() {
                 )}
               </div>
             )}
-          </div>
+          {/* Driver Review Modal */}
+                    {driverReviewModal && (
+                      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[999] flex items-center justify-center p-4 animate-fade-in">
+                        <div className="bg-black border-2 border-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative flex flex-col">
+                          <button onClick={() => setDriverReviewModal(null)} className="absolute top-4 right-4 text-slate-400 hover:text-white z-10 cursor-pointer">
+                            <X className="w-5 h-5" />
+                          </button>
+                          <div className="p-6 border-b border-white/20 bg-zinc-950">
+                            <h3 className="text-xl font-bold uppercase text-white tracking-widest font-heading">Review Driver Application</h3>
+                          </div>
+                          <div className="p-6 space-y-4 text-sm text-slate-300 flex-1 overflow-y-auto">
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Full Name</p>
+                                <p className="font-semibold text-white">{driverReviewModal.fullName}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Email</p>
+                                <p className="text-white truncate">{driverReviewModal.email}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Phone Number</p>
+                                <p className="text-white font-mono">{driverReviewModal.phone}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Vehicle Type</p>
+                                <p className="text-white capitalize">{driverReviewModal.vehicleType}</p>
+                              </div>
+                              <div className="col-span-2">
+                                <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Service Boroughs</p>
+                                <p className="text-white">{driverReviewModal.boroughs.join(', ')}</p>
+                              </div>
+                              {driverReviewModal.shipdayCarrierId && (
+                                <div className="col-span-2">
+                                  <p className="text-[10px] font-bold uppercase text-slate-500 mb-1">Shipday Carrier ID</p>
+                                  <p className="text-white font-mono bg-zinc-900 p-2 rounded border border-emerald-500/30">{driverReviewModal.shipdayCarrierId}</p>
+                                </div>
+                              )}
+                            </div>
+                            
+                            {driverReviewModal.status === 'pending' && (
+                              <div className="mt-6 border border-emerald-500/30 bg-emerald-950/20 p-4 rounded-xl">
+                                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                  <ShieldCheck className="w-4 h-4" />
+                                  Driver Portal Access
+                                </h4>
+                                <p className="text-[11px] text-slate-400 leading-relaxed">
+                                  Approving this driver will register them in Shipday dispatch system and send them their login credentials via email.
+                                </p>
+                              </div>
+                            )}
+
+                            {driverReviewModal.status === 'approved' && (
+                              <div className="mt-6 border border-cyan-500/30 bg-cyan-950/20 p-4 rounded-xl">
+                                <h4 className="text-xs font-bold text-cyan-400 uppercase tracking-widest mb-2">Driver Onboarding Instructions</h4>
+                                <div className="text-[11px] text-slate-300 leading-relaxed space-y-2">
+                                  <p><strong>1.</strong> Driver received welcome email with credentials</p>
+                                  <p><strong>2.</strong> Login at: <code className="bg-black px-1 py-0.5 rounded font-mono">curbsides.xyz</code></p>
+                                  <p><strong>3.</strong> Navigate to "Driver App" to start receiving orders</p>
+                                  <p><strong>4.</strong> Shipday Carrier ID: <strong>{driverReviewModal.shipdayCarrierId || 'N/A'}</strong></p>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="p-6 border-t border-white/20 bg-zinc-950 flex justify-end gap-3">
+                            <button 
+                              onClick={() => setDriverReviewModal(null)}
+                              className="px-5 py-2 border border-white/20 rounded-lg text-xs font-bold uppercase text-slate-300 hover:bg-white/5 transition-colors cursor-pointer"
+                            >
+                              Close
+                            </button>
+                            {driverReviewModal.status === 'pending' && (
+                              <button 
+                                onClick={async () => {
+                                  const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+                                  try {
+                                    const res = await fetch(`${BACKEND_URL}/api/drivers/${driverReviewModal.id}`, {
+                                      method: 'PATCH',
+                                      headers: { 'Content-Type': 'application/json' },
+                                      body: JSON.stringify({ status: 'approved' })
+                                    });
+                                    if (!res.ok) {
+                                      const errorData = await res.json();
+                                      throw new Error(errorData.error || `HTTP ${res.status}`);
+                                    }
+                                    const updated = await res.json();
+                                    setDrivers(prev => prev.map(d => d.id === driverReviewModal.id ? updated : d));
+                                    alert(`✅ ${updated.fullName} approved${updated.shipdayCarrierId ? ' and synced to Shipday' : ''}.`);
+                                    setDriverReviewModal(null);
+                                  } catch (err) {
+                                    console.error('Driver approval error:', err);
+                                    alert(`Failed to approve driver: ${err.message}`);
+                                  }
+                                }}
+                                className="px-5 py-2 border border-emerald-500 bg-emerald-500 text-black rounded-lg text-xs font-bold uppercase tracking-wider hover:bg-emerald-400 hover:border-emerald-400 transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] flex items-center gap-2 cursor-pointer"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                                Approve Driver
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    
+              </div>
         )}
 
         {/* Directory Tab View */}

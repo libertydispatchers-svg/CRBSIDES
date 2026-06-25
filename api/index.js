@@ -806,9 +806,13 @@ app.post("/api/admin/approve-vendor", async (req, res) => {
 
     const users = await getCollection("users");
     const vendorEmail = String(appDoc.email || "").trim().toLowerCase();
-    const existingVendor = users.find(
-      (u) => String(u.email || "").toLowerCase() === vendorEmail
-    );
+    const vendorPhone = String(appDoc.phone || "").trim().replace(/[^0-9]/g, '');
+    const existingVendor = users.find((u) => {
+      const uEmail = String(u.email || "").toLowerCase();
+      const uPhone = String(u.phone || u.phoneNumber || "").replace(/[^0-9]/g, '');
+      return (vendorEmail && uEmail === vendorEmail) || 
+             (vendorPhone && vendorPhone.length >= 10 && uPhone.includes(vendorPhone));
+    });
     const vendorId = existingVendor?.id || `vendor-approved-${Date.now()}`;
 
     let coordinates = null;
