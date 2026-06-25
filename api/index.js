@@ -302,42 +302,47 @@ app.get("/api/drivers/:id", async (req, res) => {
 });
 
 app.patch("/api/drivers/:id", async (req, res) => {
-  const driver = await getDocument("drivers", req.params.id);
-  if (driver) {
-    let updateData = { ...req.body };
-    if (updateData.metrics) {
-      updateData.metrics = {
-        ...driver.metrics,
-        ...updateData.metrics
-      };
-    }
-    const mergedDriver = { ...driver, ...updateData };
-    const processedDriver = await registerShipdayCarrierIfNeeded(mergedDriver);
-    if (processedDriver.shipdayCarrierId) {
-      updateData.shipdayCarrierId = processedDriver.shipdayCarrierId;
-      if (processedDriver.shipdayPassword) {
-        updateData.shipdayPassword = processedDriver.shipdayPassword;
+  try {
+    const driver = await getDocument("drivers", req.params.id);
+    if (driver) {
+      let updateData = { ...req.body };
+      if (updateData.metrics) {
+        updateData.metrics = {
+          ...driver.metrics,
+          ...updateData.metrics
+        };
       }
-      if (processedDriver.shipdayMessage) {
-        updateData.shipdayMessage = processedDriver.shipdayMessage;
+      const mergedDriver = { ...driver, ...updateData };
+      const processedDriver = await registerShipdayCarrierIfNeeded(mergedDriver);
+      if (processedDriver.shipdayCarrierId) {
+        updateData.shipdayCarrierId = processedDriver.shipdayCarrierId;
+        if (processedDriver.shipdayPassword) {
+          updateData.shipdayPassword = processedDriver.shipdayPassword;
+        }
+        if (processedDriver.shipdayMessage) {
+          updateData.shipdayMessage = processedDriver.shipdayMessage;
+        }
       }
-    }
-    await updateDocument("drivers", req.params.id, { ...updateData, status: processedDriver.status });
+      await updateDocument("drivers", req.params.id, { ...updateData, status: processedDriver.status });
 
-    if (driver.status !== "approved" && processedDriver.status === "approved") {
-      console.log(`[Resend] Driver approved. Sending welcome email to ${processedDriver.email}`);
-      await sendDriverWelcomeEmail(
-        processedDriver.email,
-        processedDriver.fullName,
-        processedDriver.shipdayCarrierId,
-        processedDriver.shipdayPassword || ""
-      );
-    }
+      if (driver.status !== "approved" && processedDriver.status === "approved") {
+        console.log(`[Resend] Driver approved. Sending welcome email to ${processedDriver.email}`);
+        await sendDriverWelcomeEmail(
+          processedDriver.email,
+          processedDriver.fullName,
+          processedDriver.shipdayCarrierId,
+          processedDriver.shipdayPassword || ""
+        ).catch(e => console.warn("Failed to send welcome email:", e.message));
+      }
 
-    const updatedDriver = await getDocument("drivers", req.params.id);
-    res.json(updatedDriver || { ...driver, ...updateData, status: processedDriver.status });
-  } else {
-    res.status(404).json({ error: "Driver not found" });
+      const updatedDriver = await getDocument("drivers", req.params.id);
+      res.json(updatedDriver || { ...driver, ...updateData, status: processedDriver.status });
+    } else {
+      res.status(404).json({ error: "Driver not found" });
+    }
+  } catch (error) {
+    console.error("Error updating driver:", error);
+    res.status(500).json({ error: error.message || "Internal server error during driver update" });
   }
 });
 

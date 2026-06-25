@@ -6632,7 +6632,10 @@ export default function App() {
                                     const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
                                     try {
                                       const res = await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, { method: 'DELETE' });
-                                      if (!res.ok) throw new Error('Failed to delete application');
+                                      if (!res.ok) {
+                                        const errorData = await res.json().catch(() => ({}));
+                                        throw new Error(errorData.error || `HTTP ${res.status}`);
+                                      }
                                       setVendorApplications(prev => prev.filter(a => a.id !== app.id));
                                       alert(`✅ Application deleted successfully.`);
                                     } catch (err) {
@@ -7459,7 +7462,7 @@ export default function App() {
                                       body: JSON.stringify({ status: 'approved' })
                                     });
                                     if (!res.ok) {
-                                      const errorData = await res.json();
+                                      const errorData = await res.json().catch(() => ({}));
                                       throw new Error(errorData.error || `HTTP ${res.status}`);
                                     }
                                     const updated = await res.json();
