@@ -29,6 +29,7 @@ const db = {
 
 const { initializeApp, cert, getApps } = require('firebase-admin/app');
 const { getFirestore } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth');
 
 if (!getApps().length) {
   try {
@@ -916,6 +917,13 @@ app.delete("/api/vendors/:id", async (req, res) => {
     const vendor = await getDocument("users", req.params.id);
     if (!vendor) return res.status(404).json({ error: "Vendor not found" });
     await firestore.collection("users").doc(req.params.id).delete();
+    
+    try {
+      await getAuth().deleteUser(req.params.id);
+    } catch (authErr) {
+      console.warn(`[Auth Delete] Vendor ${req.params.id} not found in Firebase Auth:`, authErr.message);
+    }
+    
     res.json({ success: true, message: `Vendor ${vendor.name} deleted` });
   } catch (err) {
     console.error("Delete vendor error:", err);
@@ -929,6 +937,18 @@ app.delete("/api/drivers/:id", async (req, res) => {
     const driver = await getDocument("drivers", req.params.id);
     if (!driver) return res.status(404).json({ error: "Driver not found" });
     await firestore.collection("drivers").doc(req.params.id).delete();
+    
+    try {
+      await getAuth().deleteUser(req.params.id);
+    } catch (authErr) {
+      console.warn(`[Auth Delete] Driver ${req.params.id} not found in Firebase Auth:`, authErr.message);
+    }
+    
+    // Also delete from users collection if they exist there
+    try {
+      await firestore.collection("users").doc(req.params.id).delete();
+    } catch (err) {}
+    
     res.json({ success: true, message: `Driver ${driver.fullName} deleted` });
   } catch (err) {
     console.error("Delete driver error:", err);
@@ -941,10 +961,33 @@ app.delete("/api/users/:id", async (req, res) => {
   try {
     const user = await getDocument("users", req.params.id);
     if (!user) return res.status(404).json({ error: "User not found" });
+    
+    // Delete from Firestore
     await firestore.collection("users").doc(req.params.id).delete();
+    
+    // Attempt to delete from Firebase Auth
+    try {
+      await getAuth().deleteUser(req.params.id);
+    } catch (authErr) {
+      console.warn(`[Auth Delete] User ${req.params.id} not found in Firebase Auth or could not be deleted:`, authErr.message);
+    }
+    
     res.json({ success: true, message: `User ${user.name || user.email} deleted` });
   } catch (err) {
     console.error("Delete user error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE vendor application endpoint
+app.delete("/api/vendor-applications/:id", async (req, res) => {
+  try {
+    const appDoc = await getDocument("vendor-applications", req.params.id);
+    if (!appDoc) return res.status(404).json({ error: "Application not found" });
+    await firestore.collection("vendor-applications").doc(req.params.id).delete();
+    res.json({ success: true, message: `Application for ${appDoc.name} deleted` });
+  } catch (err) {
+    console.error("Delete application error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1337,7 +1380,7 @@ const RESEND_API_KEY = "re_8UgEkyba_329LdTnp8qbAX16CnyKZfVwb";
 
 async function sendEmail({ to, subject, html }) {
   try {
-    const fromEmail = process.env.FROM_EMAIL || "Curbsides Auth <onboarding@curbsides.xyz>";
+    const fromEmail = process.env.FROM_EMAIL || "Curbsides Auth <onboarding@resend.dev>";
     let recipient = to.trim();
     let isRedirected = false;
 
