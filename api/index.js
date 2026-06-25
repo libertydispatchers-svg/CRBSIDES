@@ -906,6 +906,32 @@ app.patch("/api/vendors/:id/location", async (req, res) => {
   }
 });
 
+// DELETE vendor endpoint
+app.delete("/api/vendors/:id", async (req, res) => {
+  try {
+    const vendor = await getDocument("users", req.params.id);
+    if (!vendor) return res.status(404).json({ error: "Vendor not found" });
+    await firestore.collection("users").doc(req.params.id).delete();
+    res.json({ success: true, message: `Vendor ${vendor.name} deleted` });
+  } catch (err) {
+    console.error("Delete vendor error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE driver endpoint
+app.delete("/api/drivers/:id", async (req, res) => {
+  try {
+    const driver = await getDocument("drivers", req.params.id);
+    if (!driver) return res.status(404).json({ error: "Driver not found" });
+    await firestore.collection("drivers").doc(req.params.id).delete();
+    res.json({ success: true, message: `Driver ${driver.fullName} deleted` });
+  } catch (err) {
+    console.error("Delete driver error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- SHOPIFY OAUTH HANDSHAKE ENDPOINTS ---
 
 // 1. Authorization Redirect Endpoint
