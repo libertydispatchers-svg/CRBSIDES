@@ -443,6 +443,72 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Load Google Maps API & setup Places Autocomplete on elements with class ".gmaps-autocomplete"
+  useEffect(() => {
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    
+    fetch(`${BACKEND_URL}/api/config/gmaps`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.apiKey && !window.google) {
+          const script = document.createElement('script');
+          script.src = `https://maps.googleapis.com/maps/api/js?key=${data.apiKey}&libraries=places`;
+          script.async = true;
+          script.onload = () => {
+            console.log("Google Maps Places API loaded successfully.");
+            initAutocomplete();
+          };
+          document.head.appendChild(script);
+        }
+      })
+      .catch(err => console.error("Failed to load Google Maps config:", err));
+
+    const initAutocomplete = () => {
+      if (window.google && window.google.maps && window.google.maps.places) {
+        const inputs = document.querySelectorAll('.gmaps-autocomplete');
+        inputs.forEach(input => {
+          if (input.dataset.gmapsInit) return;
+          
+          const autocomplete = new window.google.maps.places.Autocomplete(input, {
+            componentRestrictions: { country: 'us' },
+            fields: ['formatted_address', 'geometry']
+          });
+          
+          autocomplete.addListener('place_changed', () => {
+            const place = autocomplete.getPlace();
+            if (!place.geometry) return;
+            
+            const address = place.formatted_address;
+            const lat = place.geometry.location.lat();
+            const lng = place.geometry.location.lng();
+            
+            if (input.id === 'checkout-address') {
+              setCheckoutAddress(address);
+            } else if (input.id === 'edit-vendor-address') {
+              setEditLocationAddress(address);
+              setEditLocationLat(lat.toFixed(6));
+              setEditLocationLng(lng.toFixed(6));
+            } else if (input.id === 'profile-delivery-address') {
+              setCustomerUser(prev => ({ ...prev, savedAddress: address }));
+            } else if (input.id === 'vendor-apply-pickup-address') {
+              setVendorLocation(address);
+            }
+          });
+          
+          input.dataset.gmapsInit = 'true';
+        });
+      }
+    };
+
+    initAutocomplete();
+    const observer = new MutationObserver(initAutocomplete);
+    observer.observe(document.body, { childList: true, subtree: true });
+    
+    return () => {
+      observer.disconnect();
+    };
+  }, [activeTab, vendorToEditLocation, showSandboxCheckout]);
+
   // URL routing and single page navigation listener
   useEffect(() => {
     const handlePopState = () => {
@@ -2904,10 +2970,11 @@ export default function App() {
                     <input
                       type="text"
                       required
+                      id="vendor-apply-pickup-address"
                       placeholder="e.g. NW Corner 5th & 42nd St"
                       value={vendorLocation}
                       onChange={(e) => setVendorLocation(e.target.value)}
-                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none"
+                      className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none gmaps-autocomplete"
                     />
                   </div>
 
@@ -3363,9 +3430,10 @@ export default function App() {
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Saved Delivery Address</label>
                             <input
                               type="text"
+                              id="profile-delivery-address"
                               value={customerUser.savedAddress || ''}
                               onChange={(e) => setCustomerUser({ ...customerUser, savedAddress: e.target.value })}
-                              className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-sans"
+                              className="w-full px-4 py-2 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-sans gmaps-autocomplete"
                               placeholder="e.g. 123 Houston St, New York, NY 10002"
                             />
                           </div>
@@ -6356,10 +6424,11 @@ export default function App() {
                               <div className="flex gap-2">
                                 <input
                                   type="text"
+                                  id="edit-vendor-address"
                                   placeholder="e.g. 205 E Houston St, New York, NY"
                                   value={editLocationAddress}
                                   onChange={(e) => setEditLocationAddress(e.target.value)}
-                                  className="flex-1 px-4 py-2.5 rounded-xl bg-black border border-white/20 text-xs text-white"
+                                  className="flex-1 px-4 py-2.5 rounded-xl bg-black border border-white/20 text-xs text-white gmaps-autocomplete"
                                 />
                                 <button
                                   type="button"
@@ -7322,10 +7391,11 @@ export default function App() {
                   <input
                     type="text"
                     required
+                    id="checkout-address"
                     placeholder="e.g. Live Location (40.7150, -73.9843)"
                     value={checkoutAddress}
                     onChange={(e) => setCheckoutAddress(e.target.value)}
-                    className="flex-1 px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans"
+                    className="flex-1 px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none font-sans gmaps-autocomplete"
                   />
                   <button
                     type="button"

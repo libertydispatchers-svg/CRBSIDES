@@ -4,14 +4,11 @@ service cloud.firestore {
 
     // Users collection — vendors, drivers, customers
     match /users/{userId} {
-      // Any authenticated user can create their own profile document
-      allow create: if request.auth != null && request.auth.uid == userId;
-      // Users can read and update their own document
-      allow read, update: if request.auth != null && request.auth.uid == userId;
-      // Admin (backend service account) can read/write all user docs
+      // Any authenticated user can create/update their own profile document, or the admin can create/update any user document
+      allow create, update: if request.auth != null && (request.auth.uid == userId || request.auth.token.email == 'libertydispatchers@gmail.com');
       // Public reads allowed for vendor directory listings
       allow read: if true;
-      allow delete: if false;
+      allow delete: if request.auth != null && request.auth.token.email == 'libertydispatchers@gmail.com';
     }
 
     // Drivers collection

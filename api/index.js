@@ -492,6 +492,16 @@ app.post("/api/orders", async (req, res) => {
         }
       }
 
+      let deliveryLat = null;
+      let deliveryLng = null;
+      if (customerAddress) {
+        const coordMatch = customerAddress.match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+        if (coordMatch) {
+          deliveryLat = parseFloat(coordMatch[1]);
+          deliveryLng = parseFloat(coordMatch[2]);
+        }
+      }
+
       const shipdayPayload = {
         orderNumber: orderId,
         customerName: customerName,
@@ -506,6 +516,10 @@ app.post("/api/orders", async (req, res) => {
       if (pickupLat !== null && pickupLng !== null) {
         shipdayPayload.pickupLatitude = pickupLat;
         shipdayPayload.pickupLongitude = pickupLng;
+      }
+      if (deliveryLat !== null && deliveryLng !== null) {
+        shipdayPayload.deliveryLatitude = deliveryLat;
+        shipdayPayload.deliveryLongitude = deliveryLng;
       }
 
       const response = await axios.post("https://api.shipday.com/orders", shipdayPayload, {
@@ -1098,6 +1112,16 @@ app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res)
           }
         }
 
+        let deliveryLat = null;
+        let deliveryLng = null;
+        if (customerAddress) {
+          const coordMatch = customerAddress.match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+          if (coordMatch) {
+            deliveryLat = parseFloat(coordMatch[1]);
+            deliveryLng = parseFloat(coordMatch[2]);
+          }
+        }
+
         const shipdayPayload = {
           orderNumber: orderId,
           customerName: customerName,
@@ -1112,6 +1136,10 @@ app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res)
         if (pickupLat !== null && pickupLng !== null) {
           shipdayPayload.pickupLatitude = pickupLat;
           shipdayPayload.pickupLongitude = pickupLng;
+        }
+        if (deliveryLat !== null && deliveryLng !== null) {
+          shipdayPayload.deliveryLatitude = deliveryLat;
+          shipdayPayload.deliveryLongitude = deliveryLng;
         }
 
         await axios.post("https://api.shipday.com/orders", shipdayPayload, {
@@ -1753,6 +1781,10 @@ app.get("/api/orders/shipday/:orderNumber", async (req, res) => {
       res.status(404).json({ error: "Order not found. Please verify the ID and try again." });
     }
   }
+});
+
+app.get("/api/config/gmaps", (req, res) => {
+  res.json({ apiKey: process.env.GOOGLE_MAPS_API_KEY || "" });
 });
 
 // Single Page App fallback routing
