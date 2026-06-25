@@ -505,6 +505,13 @@ export default function App() {
   // Fetch vendors natively from Firebase on load
   useEffect(() => {
     let unsubscribe = () => {};
+
+    // Set initial Shopify config input values from local storage so the
+    // integrations badge does not reset to "disconnected" after refresh.
+    const config = getShopifyConfig();
+    setShopDomain(config.domain || '');
+    setStorefrontToken(config.token || '');
+    setAdminTokenInput(localStorage.getItem('curbsides_shopify_admin_token') || '');
     
     async function loadNativeVendors() {
       setLoading(true);
@@ -557,12 +564,6 @@ export default function App() {
     loadNativeVendors();
     
     return () => unsubscribe();
-
-    // Set initial config input values
-    const config = getShopifyConfig();
-    setShopDomain(config.domain);
-    setStorefrontToken(config.token);
-    setAdminTokenInput(localStorage.getItem('curbsides_shopify_admin_token') || '');
   }, [isConfigOpen]);
 
   // Pre-populate Sandbox checkout if customer logged in
@@ -1609,56 +1610,31 @@ export default function App() {
   const handleApproveVendor = async (app) => {
     const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      const { db, doc, setDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } = await import('./firebase');
-
-      // 1. Mark application as approved in Firestore
-      await updateDoc(doc(db, 'vendor-applications', app.id), { status: 'approved' });
-
-      // 2. Promote or create the vendor profile in 'users'
-      const vendorEmail = (app.email || '').toLowerCase().trim();
-      let vendorUid = `vendor-approved-${Date.now()}`;
-      if (vendorEmail) {
-        const byEmailQ = query(collection(db, 'users'), where('email', '==', vendorEmail));
-        const byEmailSnap = await getDocs(byEmailQ);
-        if (!byEmailSnap.empty) {
-          vendorUid = byEmailSnap.docs[0].id;
-        }
+      const res = await fetch(`${BACKEND_URL}/api/admin/approve-vendor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appId: app.id })
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        throw new Error(payload?.error || 'Approval request failed.');
       }
-      const vendorData = {
-        name: app.name,
-        email: vendorEmail,
-        phone: app.phone || '',
-        borough: app.borough || 'Manhattan',
-        location: app.location || '',
-        foodType: app.foodType || '',
-        role: 'vendor',
-        isOpen: false,
-        rating: 5.0,
-        tags: ['Approved', 'Street Food', app.foodType].filter(Boolean),
-        items: [],
-        createdAt: serverTimestamp(),
-        approvedAt: serverTimestamp(),
-        applicationId: app.id,
-        accountAlert: {
-          type: 'approval',
-          message: 'Your vendor profile is approved. You can now access Vendor Portal.',
-          createdAt: serverTimestamp()
-        }
-      };
-      await setDoc(doc(db, 'users', vendorUid), vendorData, { merge: true });
 
-      // 3. Send vendor welcome email via dedicated backend endpoint
-      try {
-        await fetch(`${BACKEND_URL}/api/vendor-approved-email`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: app.email, name: app.name })
+      const approvedVendor = payload?.vendor;
+      if (approvedVendor) {
+        setVendors(prev => {
+          const exists = prev.some(v => v.id === approvedVendor.id);
+          if (exists) {
+            return prev.map(v => (v.id === approvedVendor.id ? { ...v, ...approvedVendor } : v));
+          }
+          return [...prev, approvedVendor];
         });
-      } catch (emailErr) {
-        console.error('Welcome email failed (non-fatal):', emailErr);
       }
+      setVendorApplications(prev => prev.map(v => (
+        v.id === app.id ? { ...v, status: 'approved' } : v
+      )));
 
-      alert(`✅ ${app.name} approved! Welcome email sent to ${app.email}. They can now sign in to the Vendor Portal.`);
+      alert(`✅ ${app.name} approved and synced to Vendor Portal + Shipday pickup profile.`);
       setVendorReviewModal(null);
     } catch (err) {
       console.error('Failed to approve vendor:', err);
@@ -1728,7 +1704,7 @@ export default function App() {
     }
     
     try {
-      const { db, doc, updateDoc } = await import('./firebase');
+      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
       
       const lat = parseFloat(editLocationLat);
       const lng = parseFloat(editLocationLng);
@@ -1738,10 +1714,24 @@ export default function App() {
         return;
       }
       
-      await updateDoc(doc(db, 'users', vendorToEditLocation.id), {
-        location: editLocationAddress.trim(),
-        coordinates: [lat, lng]
+      const response = await fetch(`${BACKEND_URL}/api/vendors/${vendorToEditLocation.id}/location`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          location: editLocationAddress.trim(),
+          coordinates: [lat, lng]
+        })
       });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result?.error || 'Failed to save vendor location');
+      }
+
+      setVendors(prev => prev.map(v => (
+        v.id === vendorToEditLocation.id
+          ? { ...v, location: editLocationAddress.trim(), coordinates: [lat, lng] }
+          : v
+      )));
       
       alert(`✅ Pickup location for ${vendorToEditLocation.name} updated successfully!`);
       
@@ -2460,6 +2450,7 @@ export default function App() {
   const handleAddMenuItem = async (e) => {
     e.preventDefault();
     if (!newMenuName || !newMenuPrice || !vendorUser) return;
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     
     const newItemId = 'menu-' + Date.now();
     const newItem = {
@@ -6462,21 +6453,23 @@ export default function App() {
                                       body: JSON.stringify({ status: nextStatus })
                                     })
                                     .then(res => {
-                                      if (!res.ok) throw new Error();
+                                      if (!res.ok) throw new Error('Unable to update driver status.');
                                       return res.json();
                                     })
                                     .then(updated => {
                                       setDrivers(prev => prev.map(d => d.id === driver.id ? updated : d));
+                                      if (nextStatus === 'approved') {
+                                        alert(`✅ ${driver.fullName} approved${updated.shipdayCarrierId ? ' and synced to Shipday' : ''}.`);
+                                      }
                                     })
                                     .catch(err => {
                                       console.error("Error updating driver status:", err);
-                                      // Local fallback
-                                      setDrivers(prev => prev.map(d => d.id === driver.id ? { ...d, status: nextStatus } : d));
+                                      alert(err.message || "Driver status update failed.");
                                     });
                                   }}
                                   className="px-2 py-1 border border-white rounded text-[10px] font-bold uppercase hover:bg-white hover:text-black transition-all"
                                 >
-                                  Toggle Status
+                                  {driver.status === 'approved' ? 'Set Pending' : 'Approve Driver'}
                                 </button>
                               </td>
                             </tr>
@@ -6751,6 +6744,22 @@ export default function App() {
                 {adminSubTab === 'vendors' && (
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Connected Storefront Vendors</h3>
+                    {(() => {
+                      const vendorDirectory = vendors.length > 0
+                        ? vendors
+                        : vendorApplications
+                            .filter(app => app.status === 'approved')
+                            .map(app => ({
+                              id: app.id,
+                              name: app.name,
+                              borough: app.borough || 'NYC',
+                              location: app.location || '',
+                              coordinates: null,
+                              rating: 5.0,
+                              items: [],
+                              source: 'application'
+                            }));
+                      return (
                     <div className="overflow-x-auto">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
@@ -6764,7 +6773,7 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/10">
-                          {vendors.map(vendor => (
+                          {vendorDirectory.map(vendor => (
                             <tr key={vendor.id} className="hover:bg-zinc-950 transition-colors">
                               <td className="py-3 font-bold text-white uppercase">{vendor.name}</td>
                               <td className="py-3">{vendor.borough}</td>
@@ -6778,21 +6787,36 @@ export default function App() {
                               <td className="py-3 text-right">
                                 <button
                                   onClick={() => {
+                                    if (vendor.source === 'application') return;
                                     setVendorToEditLocation(vendor);
                                     setEditLocationAddress(vendor.location || vendor.borough || '');
                                     setEditLocationLat((vendor.coordinates && vendor.coordinates[0]) || '40.7128');
                                     setEditLocationLng((vendor.coordinates && vendor.coordinates[1]) || '-74.0060');
                                   }}
-                                  className="px-2.5 py-1 border border-emerald-500 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer font-heading"
+                                  className={`px-2.5 py-1 border rounded text-[10px] font-bold uppercase transition-all font-heading ${
+                                    vendor.source === 'application'
+                                      ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 cursor-not-allowed'
+                                      : 'border-emerald-500 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500 hover:text-white cursor-pointer'
+                                  }`}
+                                  disabled={vendor.source === 'application'}
                                 >
-                                  Set Pickup Point
+                                  {vendor.source === 'application' ? 'Profile Sync Pending' : 'Set Pickup Point'}
                                 </button>
                               </td>
                             </tr>
                           ))}
+                          {vendorDirectory.length === 0 && (
+                            <tr>
+                              <td colSpan="6" className="py-6 text-center text-slate-500 font-mono">
+                                No approved vendors yet.
+                              </td>
+                            </tr>
+                          )}
                         </tbody>
                       </table>
                     </div>
+                      );
+                    })()}
 
                     {vendorToEditLocation && (
                       <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
@@ -6960,7 +6984,11 @@ export default function App() {
                     <div className="flex justify-between items-center border-b border-white/10 pb-3 flex-wrap gap-2">
                       <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Shopify & Shipday Integration Hub</h3>
                       <div className="flex gap-2">
-                        {shopDomain && storefrontToken && adminTokenInput ? (
+                        {(() => {
+                          const hasStoredAdminToken = !!localStorage.getItem('curbsides_shopify_admin_token');
+                          const connected = (shopDomain && storefrontToken && (adminTokenInput || hasStoredAdminToken)) || isShopifyConnected();
+                          return connected;
+                        })() ? (
                           <span className="flex items-center gap-1.5 text-[9px] bg-emerald-950/20 border border-emerald-500/30 px-2 py-0.5 rounded text-emerald-400 font-bold uppercase tracking-wider">
                             <Check className="w-3 h-3" /> Shopify Connected
                           </span>
