@@ -321,7 +321,7 @@ app.patch("/api/drivers/:id", async (req, res) => {
         updateData.shipdayMessage = processedDriver.shipdayMessage;
       }
     }
-    const updated = await updateDocument("drivers", req.params.id, { ...updateData, status: processedDriver.status });
+    await updateDocument("drivers", req.params.id, { ...updateData, status: processedDriver.status });
 
     if (driver.status !== "approved" && processedDriver.status === "approved") {
       console.log(`[Resend] Driver approved. Sending welcome email to ${processedDriver.email}`);
@@ -333,7 +333,8 @@ app.patch("/api/drivers/:id", async (req, res) => {
       );
     }
 
-    res.json(updated);
+    const updatedDriver = await getDocument("drivers", req.params.id);
+    res.json(updatedDriver || { ...driver, ...updateData, status: processedDriver.status });
   } else {
     res.status(404).json({ error: "Driver not found" });
   }
@@ -785,6 +786,123 @@ app.patch("/api/vendor-applications/:id", async (req, res) => {
     res.json(updated);
   } else {
     res.status(404).json({ error: "Application not found" });
+  }
+});
+
+app.post("/api/admin/approve-vendor", async (req, res) => {
+  try {
+    const { appId } = req.body || {};
+    if (!appId) {
+      return res.status(400).json({ error: "Missing appId" });
+    }
+
+    const appDoc = await getDocument("vendor-applications", appId);
+    if (!appDoc) {
+      return res.status(404).json({ error: "Vendor application not found" });
+    }
+
+    const approvedAt = new Date().toISOString();
+    await updateDocument("vendor-applications", appId, { status: "approved", approvedAt });
+
+    const users = await getCollection("users");
+    const vendorEmail = String(appDoc.email || "").trim().toLowerCase();
+    const existingVendor = users.find(
+      (u) => String(u.email || "").toLowerCase() === vendorEmail
+    );
+    const vendorId = existingVendor?.id || `vendor-approved-${Date.now()}`;
+
+    let coordinates = null;
+    if (Array.isArray(appDoc.coordinates) && appDoc.coordinates.length === 2) {
+      coordinates = [Number(appDoc.coordinates[0]), Number(appDoc.coordinates[1])];
+    } else if (
+      appDoc.latitude !== undefined &&
+      appDoc.longitude !== undefined &&
+      !Number.isNaN(Number(appDoc.latitude)) &&
+      !Number.isNaN(Number(appDoc.longitude))
+    ) {
+      coordinates = [Number(appDoc.latitude), Number(appDoc.longitude)];
+    } else {
+      const guessed = getCoordsFromAddress(appDoc.location || appDoc.borough || "New York, NY");
+      coordinates = [guessed.lat, guessed.lon];
+    }
+
+    const vendorRecord = {
+      ...(existingVendor || {}),
+      name: appDoc.name || existingVendor?.name || "Vendor",
+      email: vendorEmail || existingVendor?.email || "",
+      phone: appDoc.phone || existingVendor?.phone || "",
+      borough: appDoc.borough || existingVendor?.borough || "Manhattan",
+      location: appDoc.location || existingVendor?.location || "",
+      coordinates,
+      foodType: appDoc.foodType || existingVendor?.foodType || "",
+      role: "vendor",
+      isOpen: existingVendor?.isOpen ?? false,
+      rating: existingVendor?.rating || 5.0,
+      tags: Array.from(new Set([
+        ...(Array.isArray(existingVendor?.tags) ? existingVendor.tags : []),
+        "Approved",
+        "Street Food",
+        appDoc.foodType
+      ].filter(Boolean))),
+      items: Array.isArray(existingVendor?.items) ? existingVendor.items : [],
+      createdAt: existingVendor?.createdAt || approvedAt,
+      approvedAt,
+      applicationId: appId,
+      accountAlert: {
+        type: "approval",
+        message: "Your vendor profile is approved. You can now access Vendor Portal.",
+        createdAt: approvedAt
+      }
+    };
+
+    await addDocument("users", vendorId, vendorRecord);
+
+    if (vendorRecord.email) {
+      await sendVendorWelcomeEmail(vendorRecord.email, vendorRecord.name);
+    }
+
+    res.json({
+      success: true,
+      vendor: { id: vendorId, ...vendorRecord },
+      application: { ...appDoc, status: "approved", approvedAt }
+    });
+  } catch (err) {
+    console.error("[Vendor Approval] Failed:", err.message);
+    res.status(500).json({ error: err.message || "Failed to approve vendor" });
+  }
+});
+
+app.patch("/api/vendors/:id/location", async (req, res) => {
+  try {
+    const vendor = await getDocument("users", req.params.id);
+    if (!vendor) {
+      return res.status(404).json({ error: "Vendor not found" });
+    }
+
+    const inputLocation = String(req.body?.location || "").trim();
+    const inputCoordinates = req.body?.coordinates;
+    let coordinates = null;
+    if (
+      Array.isArray(inputCoordinates) &&
+      inputCoordinates.length === 2 &&
+      !Number.isNaN(Number(inputCoordinates[0])) &&
+      !Number.isNaN(Number(inputCoordinates[1]))
+    ) {
+      coordinates = [Number(inputCoordinates[0]), Number(inputCoordinates[1])];
+    } else {
+      const guessed = getCoordsFromAddress(inputLocation || vendor.location || vendor.borough || "New York, NY");
+      coordinates = [guessed.lat, guessed.lon];
+    }
+
+    await updateDocument("users", req.params.id, {
+      location: inputLocation || vendor.location || "",
+      coordinates
+    });
+    const updatedVendor = await getDocument("users", req.params.id);
+    res.json(updatedVendor || { ...vendor, location: inputLocation, coordinates });
+  } catch (err) {
+    console.error("[Vendor Location] Failed:", err.message);
+    res.status(500).json({ error: err.message || "Failed to update vendor location" });
   }
 });
 
