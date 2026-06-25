@@ -175,10 +175,7 @@ export default function App() {
   const [customerRegisterPassword, setCustomerRegisterPassword] = useState('');
   const [customerAuthError, setCustomerAuthError] = useState('');
   
-  // Customer Wallet (Cards)
-  const [customerCards, setCustomerCards] = useState([
-    { id: 'card-1', brand: 'Visa', last4: '4242', exp: '12/28' }
-  ]);
+  const [customerCards, setCustomerCards] = useState([]);
   const [isAddingCard, setIsAddingCard] = useState(false);
   const [newCardNum, setNewCardNum] = useState('');
   const [newCardExpiry, setNewCardExpiry] = useState('');
@@ -1019,6 +1016,7 @@ export default function App() {
           setActiveTab('vendor-portal');
         } else {
           setCustomerUser(profileData);
+          setCustomerCards(profileData.cards || []);
           setCustomerActiveSubTab('profile');
           setActiveTab('account');
         }
@@ -1109,7 +1107,7 @@ export default function App() {
     setIsCheckoutLoading(true);
 
     try {
-      const res = await createShopifyCheckout(cart);
+      const res = await createShopifyCheckout(cart, customerUser);
       if (res.success) {
         window.open(res.webUrl, '_blank');
         setCheckoutUrl(res.webUrl);
@@ -1529,6 +1527,7 @@ export default function App() {
     setIsAdminAuthenticated(false);
     if (customerUser && customerUser.email.toLowerCase() === 'libertydispatchers@gmail.com') {
       setCustomerUser(null);
+      setCustomerCards([]);
     }
     setActiveTab('directory');
   };
@@ -1848,6 +1847,7 @@ export default function App() {
         setActiveTab('vendor-portal');
       } else {
         setCustomerUser(user);
+        setCustomerCards(user.cards || []);
         setCustomerActiveSubTab('profile');
         setActiveTab('account');
       }
@@ -1926,6 +1926,7 @@ export default function App() {
 
   const handleCustomerLogout = () => {
     setCustomerUser(null);
+    setCustomerCards([]);
     setCustomerActiveSubTab('profile');
   };
 
@@ -1967,7 +1968,10 @@ export default function App() {
     if (!customerUser || !customerUser.id) return;
     try {
       const { db, doc, setDoc } = await import('./firebase');
-      await setDoc(doc(db, 'users', customerUser.id), customerUser, { merge: true });
+      await setDoc(doc(db, 'users', customerUser.id), {
+        ...customerUser,
+        cards: customerCards
+      }, { merge: true });
       alert("Profile updated successfully!");
     } catch (err) {
       alert("Failed to update profile: " + err.message);
@@ -2038,7 +2042,7 @@ export default function App() {
     }
   };
 
-  const handleAddCustomerCard = (e) => {
+  const handleAddCustomerCard = async (e) => {
     e.preventDefault();
     if (!newCardNum.trim() || !newCardExpiry.trim() || !newCardCvc.trim()) {
       alert("Please fill in all credit card details.");
@@ -2054,15 +2058,40 @@ export default function App() {
       last4,
       exp: newCardExpiry.trim()
     };
-    setCustomerCards([...customerCards, newCard]);
+    
+    const updatedCards = [...customerCards, newCard];
+    setCustomerCards(updatedCards);
     setIsAddingCard(false);
     setNewCardNum('');
     setNewCardExpiry('');
     setNewCardCvc('');
+
+    if (customerUser && customerUser.id) {
+      try {
+        const { db, doc, updateDoc } = await import('./firebase');
+        await updateDoc(doc(db, 'users', customerUser.id), {
+          cards: updatedCards
+        });
+      } catch (err) {
+        console.error("Failed to save card to Firestore:", err);
+      }
+    }
   };
 
-  const handleDeleteCustomerCard = (cardId) => {
-    setCustomerCards(customerCards.filter(c => c.id !== cardId));
+  const handleDeleteCustomerCard = async (cardId) => {
+    const updatedCards = customerCards.filter(c => c.id !== cardId);
+    setCustomerCards(updatedCards);
+
+    if (customerUser && customerUser.id) {
+      try {
+        const { db, doc, updateDoc } = await import('./firebase');
+        await updateDoc(doc(db, 'users', customerUser.id), {
+          cards: updatedCards
+        });
+      } catch (err) {
+        console.error("Failed to delete card from Firestore:", err);
+      }
+    }
   };
 
   const handleSendSupportMessage = (e) => {
@@ -2570,6 +2599,7 @@ export default function App() {
               <button
                 onClick={() => {
                   setCustomerUser(null);
+                  setCustomerCards([]);
                   setActiveTab('directory');
                 }}
                 className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"

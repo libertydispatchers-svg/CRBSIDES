@@ -133,8 +133,32 @@ export async function fetchVendorsAndProducts() {
   }
 }
 
+function parseAddressString(addressStr) {
+  if (!addressStr) return null;
+  const parts = addressStr.split(',').map(p => p.trim());
+  
+  let address1 = parts[0] || '';
+  let city = parts[1] || 'New York';
+  let province = parts[2] || 'NY';
+  let zip = '';
+  
+  const provParts = province.split(/\s+/);
+  if (provParts.length > 1) {
+    province = provParts[0];
+    zip = provParts[1];
+  }
+  
+  return {
+    address1,
+    city,
+    province,
+    zip: zip || '10001',
+    country: 'United States'
+  };
+}
+
 // Create checkout link via Shopify Storefront API mutation
-export async function createShopifyCheckout(cartItems) {
+export async function createShopifyCheckout(cartItems, customerProfile = null) {
   if (!isShopifyConnected()) {
     // Sandbox checkout simulation
     return {
@@ -165,8 +189,30 @@ export async function createShopifyCheckout(cartItems) {
     quantity: item.quantity
   }));
 
+  const input = {
+    lineItems
+  };
+
+  if (customerProfile) {
+    if (customerProfile.email) {
+      input.email = customerProfile.email;
+    }
+    if (customerProfile.savedAddress) {
+      const parsedAddr = parseAddressString(customerProfile.savedAddress);
+      if (parsedAddr) {
+        const names = (customerProfile.name || '').split(/\s+/);
+        input.shippingAddress = {
+          ...parsedAddr,
+          firstName: names[0] || 'Customer',
+          lastName: names.slice(1).join(' ') || 'User',
+          phone: customerProfile.phone || ''
+        };
+      }
+    }
+  }
+
   try {
-    const data = await shopifyFetch(mutation, { input: { lineItems } });
+    const data = await shopifyFetch(mutation, { input });
     const errors = data.checkoutCreate.checkoutUserErrors;
     if (errors && errors.length > 0) {
       throw new Error(errors.map(e => e.message).join(', '));
