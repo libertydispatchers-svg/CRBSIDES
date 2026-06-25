@@ -191,6 +191,57 @@ export default function App() {
   const [editLocationAddress, setEditLocationAddress] = useState('');
   const [editLocationLat, setEditLocationLat] = useState('');
   const [editLocationLng, setEditLocationLng] = useState('');
+  const [viewerCoordinates, setViewerCoordinates] = useState(null);
+  const [showVendorApprovedNotice, setShowVendorApprovedNotice] = useState(false);
+  const [profileCompletion, setProfileCompletion] = useState({ open: false, name: '', email: '', phone: '', userId: '' });
+
+  const isPhoneAliasEmail = (value = '') => {
+    const email = value.trim().toLowerCase();
+    return /^phone-.*@curbside\.xyz$/.test(email) || /^[+]?[0-9][0-9()\-\s]{6,}$/.test(email);
+  };
+
+  const normalizePhoneForAuth = (rawPhone = '') => {
+    const digits = rawPhone.replace(/\D/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
+    if (digits.length === 10) return `+1${digits}`;
+    return rawPhone.trim().startsWith('+') ? rawPhone.trim() : `+${digits}`;
+  };
+
+  const haversineMiles = (pointA, pointB) => {
+    if (!pointA || !pointB) return null;
+    const [lat1, lon1] = pointA;
+    const [lat2, lon2] = pointB;
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const R = 3958.8;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const estimateDeliveryCharge = (distanceMiles) => {
+    if (typeof distanceMiles !== 'number' || Number.isNaN(distanceMiles)) return null;
+    const baseFee = 3.99;
+    const perMile = 1.45;
+    return Number((baseFee + distanceMiles * perMile).toFixed(2));
+  };
+
+  const requestViewerLocation = () => {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setViewerCoordinates([latitude, longitude]);
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
 
   const fetchVendorMenu = async (vendorId) => {
     try {
@@ -214,6 +265,43 @@ export default function App() {
     }
     const items = await fetchVendorMenu(vendor.id || vendor.uid);
     setVendorUser({ ...vendor, items });
+  };
+
+  const resolveAndOpenVendorPortal = async (email) => {
+    if (!email) return false;
+    const normalizedEmail = email.toLowerCase().trim();
+    try {
+      const { db, collection, query, where, getDocs } = await import('./firebase');
+      const q = query(collection(db, 'users'), where('email', '==', normalizedEmail));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const vendorDoc = snap.docs.find(d => (d.data().role || '').toLowerCase() === 'vendor');
+        const docSnap = vendorDoc || snap.docs[0];
+        const data = docSnap.data();
+        const vendorFromProfile = {
+          id: docSnap.id,
+          name: data.name || normalizedEmail.split('@')[0],
+          email: data.email || normalizedEmail,
+          borough: data.borough || 'Manhattan, NYC',
+          location: data.location || '',
+          coordinates: data.coordinates || null,
+          isOpen: data.isOpen ?? false,
+          rating: data.rating || 5.0,
+          tags: data.tags || ['Approved'],
+          items: [],
+          earnings: data.earnings || 0,
+          logo: data.logo || data.photoURL || null
+        };
+        await loadVendorProfile(vendorFromProfile);
+        setSelectedPortalVendorId(vendorFromProfile.id);
+        setVendorActiveSubTab('menu');
+        setActiveTab('vendor-portal');
+        return true;
+      }
+    } catch (err) {
+      console.error('Unable to resolve approved vendor profile by email:', err);
+    }
+    return false;
   };
 
   const handleVendorClick = async (vendor) => {
@@ -304,6 +392,73 @@ export default function App() {
     watchApplication();
     return () => unsubscribe();
   }, [customerUser]);
+
+  useEffect(() => {
+    if (vendorApplicationStatus === 'approved' && customerUser && !vendorUser) {
+      setShowVendorApprovedNotice(true);
+    }
+  }, [vendorApplicationStatus, customerUser, vendorUser]);
+
+  useEffect(() => {
+    if (customerUser && !viewerCoordinates) {
+      requestViewerLocation();
+    }
+  }, [customerUser, viewerCoordinates]);
+
+  useEffect(() => {
+    if (activeTab === 'vendor-portal' && !vendorUser && vendorApplicationStatus === 'approved' && customerUser?.email) {
+      resolveAndOpenVendorPortal(customerUser.email);
+    }
+  }, [activeTab, vendorUser, vendorApplicationStatus, customerUser]);
+
+  useEffect(() => {
+    let unsubscribe = () => {};
+    const initAuthWatcher = async () => {
+      try {
+        const { auth, db, doc, getDoc, collection, query, where, getDocs } = await import('./firebase');
+        const { onAuthStateChanged } = await import('firebase/auth');
+        unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+          if (!firebaseUser) return;
+          const directDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+          let profile = directDoc.exists() ? { id: directDoc.id, ...directDoc.data() } : null;
+          if (!profile && firebaseUser.email) {
+            const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email.toLowerCase().trim()));
+            const snap = await getDocs(q);
+            if (!snap.empty) {
+              profile = { id: snap.docs[0].id, ...snap.docs[0].data() };
+            }
+          }
+          if (!profile) return;
+          if (profile.role === 'vendor') {
+            await loadVendorProfile({
+              id: profile.id,
+              name: profile.name || firebaseUser.displayName || 'Vendor',
+              email: profile.email || firebaseUser.email || '',
+              borough: profile.borough || 'Manhattan, NYC',
+              location: profile.location || '',
+              coordinates: profile.coordinates || null,
+              isOpen: profile.isOpen ?? false,
+              rating: profile.rating || 5.0,
+              tags: profile.tags || ['Approved'],
+              items: [],
+              earnings: profile.earnings || 0,
+              logo: profile.logo || profile.photoURL || null
+            });
+            setSelectedPortalVendorId(profile.id);
+          } else if (profile.role === 'driver') {
+            setDriverUser(profile);
+          } else {
+            setCustomerUser(profile);
+            setCustomerCards(profile.cards || []);
+          }
+        });
+      } catch (err) {
+        console.error('Auth restore subscription failed:', err);
+      }
+    };
+    initAuthWatcher();
+    return () => unsubscribe();
+  }, []);
 
   // Real Database State for Admin Dashboard
   const [drivers, setDrivers] = useState([]);
@@ -729,9 +884,31 @@ export default function App() {
             "vendor-jerk-chicken": [40.8116, -73.9465]  // Harlem
           };
 
+          const bounds = [];
+          if (viewerCoordinates) {
+            const userIcon = window.L.divIcon({
+              className: 'viewer-div-icon',
+              html: `<div class="w-8 h-8 rounded-full border-2 border-cyan-400 bg-black flex items-center justify-center font-bold text-cyan-300 text-xs shadow-lg shadow-cyan-500/20">YOU</div>`,
+              iconSize: [32, 32],
+              iconAnchor: [16, 16]
+            });
+            const youMarker = window.L.marker(viewerCoordinates, { icon: userIcon })
+              .addTo(mapInstanceRef.current)
+              .bindPopup(`
+                <div class="bg-black text-white p-2 border-2 border-cyan-400 rounded-lg font-sans">
+                  <h4 class="font-bold text-[11px] text-cyan-300 uppercase mb-1">Your Active Location</h4>
+                  <p class="text-[10px] text-slate-400">Nearest delivery estimates are now enabled.</p>
+                </div>
+              `, { closeButton: false });
+            markersRef.current.push(youMarker);
+            bounds.push(viewerCoordinates);
+          }
+
           // Draw vendors
           vendors.forEach(v => {
             const pos = v.coordinates || coords[v.id] || [40.7128 + (Math.random() - 0.5) * 0.1, -74.0060 + (Math.random() - 0.5) * 0.1];
+            const distanceMiles = viewerCoordinates ? haversineMiles(viewerCoordinates, pos) : null;
+            const estimatedFee = estimateDeliveryCharge(distanceMiles);
             const customIcon = window.L.divIcon({
               className: 'custom-div-icon',
               html: `<div class="w-8 h-8 rounded-full border-2 border-white bg-black flex items-center justify-center font-bold text-white text-xs shadow-lg shadow-white/10">C</div>`,
@@ -745,6 +922,7 @@ export default function App() {
                 <div class="bg-black text-white p-2 border-2 border-white rounded-lg font-sans">
                   <h4 class="font-bold text-sm text-white border-b border-white/20 pb-1 mb-1 uppercase">${v.name}</h4>
                   <p class="text-xs text-slate-400 font-semibold mb-2">${v.borough}</p>
+                  ${estimatedFee !== null ? `<p class="text-[10px] text-emerald-300 font-bold mb-2">Est. Delivery: $${estimatedFee.toFixed(2)} (${distanceMiles.toFixed(1)} mi)</p>` : `<p class="text-[10px] text-slate-500 mb-2">Enable location to see delivery estimate</p>`}
                   <button onclick="window.selectVendorFromMap('${v.id}')" class="w-full text-center px-2 py-1 bg-white text-black font-bold text-[10px] rounded uppercase hover:bg-black hover:text-white border border-white transition-all cursor-pointer">
                     View Menu
                   </button>
@@ -752,6 +930,7 @@ export default function App() {
               `, { closeButton: false });
 
             markersRef.current.push(marker);
+            bounds.push(pos);
           });
 
           // Draw online drivers
@@ -776,12 +955,17 @@ export default function App() {
                 `, { closeButton: false });
 
               markersRef.current.push(marker);
+              bounds.push(pos);
             }
           });
+
+          if (bounds.length > 0) {
+            mapInstanceRef.current.fitBounds(bounds, { padding: [45, 45], maxZoom: 13 });
+          }
         }
       }, 100);
     }
-  }, [activeTab, vendors, onlineDrivers]);
+  }, [activeTab, vendors, onlineDrivers, viewerCoordinates]);
 
   // Handle global method for map popup click
   useEffect(() => {
@@ -909,8 +1093,17 @@ export default function App() {
     
     const matchesBorough = selectedBorough === 'All' || 
       v.borough.toLowerCase().includes(selectedBorough.toLowerCase());
-
     return matchesSearch && matchesBorough;
+  }).sort((a, b) => {
+    if (!viewerCoordinates) return 0;
+    const coordsA = a.coordinates || null;
+    const coordsB = b.coordinates || null;
+    const distA = haversineMiles(viewerCoordinates, coordsA);
+    const distB = haversineMiles(viewerCoordinates, coordsB);
+    if (distA === null && distB === null) return 0;
+    if (distA === null) return 1;
+    if (distB === null) return -1;
+    return distA - distB;
   });
 
   // Cart Functions
@@ -959,8 +1152,13 @@ export default function App() {
         const result = await signInWithPopup(auth, appleProvider);
         user = result.user;
       } else if (method === 'Phone') {
-        const phone = prompt("Enter your Mobile Phone Number (e.g., +15555555555):");
-        if (!phone || !phone.trim()) return;
+        const rawPhone = prompt("Enter your mobile number. Include country code (example: +1 5551234567).");
+        if (!rawPhone || !rawPhone.trim()) return;
+        const phone = normalizePhoneForAuth(rawPhone);
+        if (!phone.startsWith('+')) {
+          alert("Please include country code. Example: +1 5551234567");
+          return;
+        }
         
         if (!window.recaptchaVerifier) {
           window.recaptchaVerifier = new RecaptchaVerifier(auth, 'recaptcha-container', {
@@ -1017,7 +1215,8 @@ export default function App() {
             // Create a new profile for SSO users
             const newProfile = {
               name: user.displayName || (user.email ? user.email.split('@')[0] : 'New User'),
-              email: (user.email || user.phoneNumber || '').toLowerCase(),
+              email: (user.email || '').toLowerCase(),
+              phone: user.phoneNumber || '',
               role: role,
               isOpen: role === 'vendor' ? false : null,
               rating: role === 'vendor' ? 5.0 : null,
@@ -1041,6 +1240,15 @@ export default function App() {
               }).catch(e => console.error(e));
             } catch(e) {}
           }
+        }
+
+        if (isPhoneAliasEmail(profileData.email)) {
+          profileData = {
+            ...profileData,
+            email: '',
+            phone: profileData.phone || user.phoneNumber || ''
+          };
+          await setDoc(userDocRef, { email: '', phone: profileData.phone }, { merge: true });
         }
 
         // Override role for admin email
@@ -1084,7 +1292,17 @@ export default function App() {
           setCustomerUser(profileData);
           setCustomerCards(profileData.cards || []);
           setCustomerActiveSubTab('profile');
-          setActiveTab('account');
+          requestViewerLocation();
+          setActiveTab('map');
+          if (!profileData.name || !profileData.email || isPhoneAliasEmail(profileData.email)) {
+            setProfileCompletion({
+              open: true,
+              name: profileData.name || '',
+              email: isPhoneAliasEmail(profileData.email) ? '' : (profileData.email || ''),
+              phone: profileData.phone || user.phoneNumber || '',
+              userId: profileData.id || user.uid
+            });
+          }
         }
       }
     } catch (err) {
@@ -1105,7 +1323,7 @@ export default function App() {
     if (cart.length === 0) return;
 
     const matchedV = vendors.find(v => v.name === cart[0].vendorName);
-    const vendorAddress = matchedV ? matchedV.borough : "Katz's Delicatessen, 205 E Houston St, New York, NY 10002";
+    const vendorAddress = matchedV ? (matchedV.location || matchedV.borough) : "Katz's Delicatessen, 205 E Houston St, New York, NY 10002";
 
     const orderPayload = {
       customerName: checkoutName.trim(),
@@ -1386,17 +1604,24 @@ export default function App() {
   const handleApproveVendor = async (app) => {
     const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
     try {
-      const { db, doc, setDoc, updateDoc, serverTimestamp } = await import('./firebase');
+      const { db, doc, setDoc, updateDoc, serverTimestamp, collection, query, where, getDocs } = await import('./firebase');
 
       // 1. Mark application as approved in Firestore
       await updateDoc(doc(db, 'vendor-applications', app.id), { status: 'approved' });
 
-      // 2. Create approved vendor in 'users' collection with role: 'vendor'
-      //    This makes them appear in the real-time vendor directory immediately.
-      const vendorUid = `vendor-approved-${Date.now()}`;
+      // 2. Promote or create the vendor profile in 'users'
+      const vendorEmail = (app.email || '').toLowerCase().trim();
+      let vendorUid = `vendor-approved-${Date.now()}`;
+      if (vendorEmail) {
+        const byEmailQ = query(collection(db, 'users'), where('email', '==', vendorEmail));
+        const byEmailSnap = await getDocs(byEmailQ);
+        if (!byEmailSnap.empty) {
+          vendorUid = byEmailSnap.docs[0].id;
+        }
+      }
       const vendorData = {
         name: app.name,
-        email: (app.email || '').toLowerCase().trim(),
+        email: vendorEmail,
         phone: app.phone || '',
         borough: app.borough || 'Manhattan',
         location: app.location || '',
@@ -1408,9 +1633,14 @@ export default function App() {
         items: [],
         createdAt: serverTimestamp(),
         approvedAt: serverTimestamp(),
-        applicationId: app.id
+        applicationId: app.id,
+        accountAlert: {
+          type: 'approval',
+          message: 'Your vendor profile is approved. You can now access Vendor Portal.',
+          createdAt: serverTimestamp()
+        }
       };
-      await setDoc(doc(db, 'users', vendorUid), vendorData);
+      await setDoc(doc(db, 'users', vendorUid), vendorData, { merge: true });
 
       // 3. Send vendor welcome email via dedicated backend endpoint
       try {
@@ -1686,11 +1916,19 @@ export default function App() {
   };
 
   // Vendor Logout
-  const handleVendorLogout = () => {
+  const handleVendorLogout = async () => {
+    try {
+      const { auth } = await import('./firebase');
+      const { signOut } = await import('firebase/auth');
+      await signOut(auth);
+    } catch (err) {
+      console.error('Vendor sign out failed:', err);
+    }
     setVendorUser(null);
     setVendorLoginEmail('');
     setVendorLoginPasscode('');
     setVendorLoginError('');
+    setViewerCoordinates(null);
     setActiveTab('directory');
   };
 
@@ -1915,7 +2153,17 @@ export default function App() {
         setCustomerUser(user);
         setCustomerCards(user.cards || []);
         setCustomerActiveSubTab('profile');
-        setActiveTab('account');
+        requestViewerLocation();
+        setActiveTab('map');
+        if (!user.name || !user.email || isPhoneAliasEmail(user.email)) {
+          setProfileCompletion({
+            open: true,
+            name: user.name || '',
+            email: isPhoneAliasEmail(user.email) ? '' : (user.email || ''),
+            phone: user.phone || '',
+            userId: user.id || firebaseUser.uid
+          });
+        }
       }
     } catch (err) {
       if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
@@ -1976,24 +2224,34 @@ export default function App() {
           setVendorActiveSubTab('menu');
           setActiveTab('vendor-portal');
         } else {
-          setCustomerUser({
+          const fallbackCustomer = {
             name: email.split('@')[0].toUpperCase(),
             email: email,
             phone: '555-0199',
             joinedDate: '06/15/2026',
             role: 'customer'
-          });
+          };
+          setCustomerUser(fallbackCustomer);
           setCustomerActiveSubTab('profile');
-          setActiveTab('account');
+          requestViewerLocation();
+          setActiveTab('map');
         }
       }
     }
   };
 
-  const handleCustomerLogout = () => {
+  const handleCustomerLogout = async () => {
+    try {
+      const { auth } = await import('./firebase');
+      const { signOut } = await import('firebase/auth');
+      await signOut(auth);
+    } catch (err) {
+      console.error('Customer sign out failed:', err);
+    }
     setCustomerUser(null);
     setCustomerCards([]);
     setCustomerActiveSubTab('profile');
+    setViewerCoordinates(null);
   };
 
   const handleForgotCustomerPassword = async () => {
@@ -2428,7 +2686,15 @@ export default function App() {
                         setActiveTab('driver-portal');
                       } else {
                         setCustomerUser(simulatedUser);
-                        setActiveTab('account');
+                        requestViewerLocation();
+                        setActiveTab('map');
+                        setProfileCompletion({
+                          open: true,
+                          name: '',
+                          email: '',
+                          phone: verifiedPhone,
+                          userId: simulatedUser.id
+                        });
                       }
                     } else {
                       setVerificationError("Invalid phone verification code. (Use 123456 for testing)");
@@ -2476,7 +2742,17 @@ export default function App() {
                       setActiveTab('driver-portal');
                     } else {
                       setCustomerUser(data.user);
-                      setActiveTab('account');
+                      requestViewerLocation();
+                      setActiveTab('map');
+                      if (!data.user.name || !data.user.email || isPhoneAliasEmail(data.user.email)) {
+                        setProfileCompletion({
+                          open: true,
+                          name: data.user.name || '',
+                          email: isPhoneAliasEmail(data.user.email) ? '' : (data.user.email || ''),
+                          phone: data.user.phone || '',
+                          userId: data.user.id || ''
+                        });
+                      }
                     }
                   } else {
                     setVerificationError(data.error || "Verification failed. Check code.");
@@ -2530,6 +2806,77 @@ export default function App() {
                   Cancel
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {profileCompletion.open && (
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="max-w-md w-full border-2 border-white rounded-2xl p-6 md:p-8 bg-zinc-950 shadow-[0_0_50px_rgba(255,255,255,0.1)] space-y-5">
+            <div className="text-center space-y-2">
+              <span className="bg-emerald-500 text-black font-extrabold text-[9px] uppercase tracking-widest px-2 py-0.5 rounded">
+                One-Time Setup
+              </span>
+              <h2 className="text-2xl font-bold uppercase text-white font-heading">Complete Your Profile</h2>
+              <p className="text-xs text-slate-400">Phone sign-in works, but alerts are email-based right now. Add your name and email to receive account updates.</p>
+            </div>
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const name = profileCompletion.name.trim();
+                const email = profileCompletion.email.trim().toLowerCase();
+                if (!name || !email) return;
+                try {
+                  const { db, doc, setDoc } = await import('./firebase');
+                  const targetId = profileCompletion.userId || customerUser?.id;
+                  if (targetId) {
+                    await setDoc(doc(db, 'users', targetId), {
+                      name,
+                      email,
+                      phone: profileCompletion.phone || customerUser?.phone || ''
+                    }, { merge: true });
+                  }
+                  setCustomerUser(prev => prev ? { ...prev, name, email, phone: profileCompletion.phone || prev.phone || '' } : prev);
+                  setProfileCompletion({ open: false, name: '', email: '', phone: '', userId: '' });
+                } catch (err) {
+                  console.error('Failed to save completed profile:', err);
+                  alert('Could not save profile details. Please try again.');
+                }
+              }}
+              className="space-y-3"
+            >
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
+                <input
+                  type="text"
+                  required
+                  value={profileCompletion.name}
+                  onChange={(e) => setProfileCompletion(prev => ({ ...prev, name: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Email Address</label>
+                <input
+                  type="email"
+                  required
+                  value={profileCompletion.email}
+                  onChange={(e) => setProfileCompletion(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-xl bg-black border border-white/20 text-sm text-white focus:border-white focus:outline-none"
+                />
+              </div>
+              {profileCompletion.phone && (
+                <div className="text-[11px] text-slate-400 border border-white/10 rounded-lg p-2.5 bg-black">
+                  Phone on file: <span className="text-white font-mono">{profileCompletion.phone}</span>
+                </div>
+              )}
+              <button
+                type="submit"
+                className="w-full py-3 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+              >
+                Save & Continue
+              </button>
             </form>
           </div>
         </div>
@@ -2644,7 +2991,16 @@ export default function App() {
               )}
               {vendorApplicationStatus === 'approved' && (
                 <button
-                  onClick={() => setActiveTab('vendor-portal')}
+                  onClick={async () => {
+                    if (customerUser?.email) {
+                      const opened = await resolveAndOpenVendorPortal(customerUser.email);
+                      if (!opened) {
+                        setActiveTab('vendor-portal');
+                      }
+                    } else {
+                      setActiveTab('vendor-portal');
+                    }
+                  }}
                   className="px-3 py-1.5 border-2 border-emerald-500 rounded-lg text-xs font-bold uppercase bg-black text-emerald-400 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer font-heading flex items-center gap-1.5"
                 >
                   Vendor Portal
@@ -2663,9 +3019,8 @@ export default function App() {
                 )}
               </button>
               <button
-                onClick={() => {
-                  setCustomerUser(null);
-                  setCustomerCards([]);
+                onClick={async () => {
+                  await handleCustomerLogout();
                   setActiveTab('directory');
                 }}
                 className="px-3 py-1.5 border-2 border-red-500 rounded-lg text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all cursor-pointer font-heading"
@@ -3128,6 +3483,24 @@ export default function App() {
         {/* Customer Account Hub: Profile, Cards, Chat, Order tracking */}
         {activeTab === 'account' && (
           <div className="lg:col-span-12 p-6 max-w-4xl mx-auto w-full">
+            {showVendorApprovedNotice && customerUser && vendorApplicationStatus === 'approved' && (
+              <div className="mb-4 border border-emerald-500/30 bg-emerald-950/20 rounded-xl p-3 flex items-center justify-between gap-2">
+                <div className="text-xs">
+                  <span className="font-bold uppercase text-emerald-400">Approved:</span>{' '}
+                  <span className="text-slate-200">Your vendor account is active. Open Vendor Portal to manage menu, GPS, and orders.</span>
+                </div>
+                <button
+                  onClick={async () => {
+                    setShowVendorApprovedNotice(false);
+                    const opened = await resolveAndOpenVendorPortal(customerUser.email);
+                    if (!opened) setActiveTab('vendor-portal');
+                  }}
+                  className="px-3 py-1.5 border border-emerald-500 rounded-lg text-[10px] font-bold uppercase text-emerald-300 hover:bg-emerald-500 hover:text-white transition-all"
+                >
+                  Open Portal
+                </button>
+              </div>
+            )}
             {!customerUser ? (
               <div className="max-w-md mx-auto border-2 border-white bg-black rounded-2xl p-6 md:p-8 shadow-2xl relative space-y-6">
                 {/* Switcher Tabs */}
@@ -3235,6 +3608,7 @@ export default function App() {
                         </button>
                         
                       </div>
+                      <p className="text-[10px] text-slate-500">Phone sign-in tip: include country code (example: <span className="text-white font-mono">+1 5551234567</span>).</p>
                       <div className="grid grid-cols-2 gap-2.5">
                         
                         
@@ -3336,6 +3710,7 @@ export default function App() {
                         </button>
                         
                       </div>
+                      <p className="text-[10px] text-slate-500">Phone sign-up tip: include country code (example: <span className="text-white font-mono">+1 5551234567</span>).</p>
                       <div className="grid grid-cols-2 gap-2.5">
                         
                         
@@ -4312,6 +4687,11 @@ export default function App() {
                     </div>
                     <h2 className="text-2xl font-bold uppercase text-white font-heading mt-1">{vendorUser.name}</h2>
                     <p className="text-xs text-slate-400 mt-0.5">{vendorUser.borough} &bull; Rating: {vendorUser.rating} ★</p>
+                    {vendorUser.accountAlert?.type === 'approval' && (
+                      <div className="mt-2 text-[10px] text-emerald-300 border border-emerald-500/30 bg-emerald-950/20 rounded px-2 py-1 uppercase tracking-wide font-bold">
+                        {vendorUser.accountAlert.message}
+                      </div>
+                    )}
                   </div>
                   
                   <div className="flex gap-2">
@@ -5185,6 +5565,7 @@ export default function App() {
                         </button>
                       
                     </div>
+                    <p className="text-[10px] text-slate-500">Use E.164 format for phone sign-in (example: <span className="text-white font-mono">+1 5551234567</span>).</p>
                     <div className="grid grid-cols-2 gap-2.5">
                       
                       
@@ -5300,6 +5681,7 @@ export default function App() {
                         </button>
                       
                     </div>
+                    <p className="text-[10px] text-slate-500">Use E.164 format for phone registration (example: <span className="text-white font-mono">+1 5551234567</span>).</p>
                     <div className="grid grid-cols-2 gap-2.5">
                       
                       
@@ -6873,6 +7255,10 @@ export default function App() {
                   </div>
                 ) : (
                   filteredVendors.map(vendor => (
+                    (() => {
+                      const miles = viewerCoordinates && vendor.coordinates ? haversineMiles(viewerCoordinates, vendor.coordinates) : null;
+                      const fee = estimateDeliveryCharge(miles);
+                      return (
                     <div 
                       key={vendor.id} 
                       onClick={() => {
@@ -6903,6 +7289,11 @@ export default function App() {
                             <span className="truncate">{vendor.borough}</span>
                             <span className="text-amber-500 font-bold ml-1">{vendor.rating ? `${vendor.rating.toFixed(1)} ★` : '5.0 ★'}</span>
                           </div>
+                          {fee !== null && (
+                            <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                              Est. Delivery ${fee.toFixed(2)} &bull; {miles.toFixed(1)} mi away
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -6915,6 +7306,8 @@ export default function App() {
                         </div>
                       </div>
                     </div>
+                      );
+                    })()
                   ))
                 )}
               </div>
