@@ -450,6 +450,11 @@ export default function App() {
           } else {
             setCustomerUser(profile);
             setCustomerCards(profile.cards || []);
+            // Restore admin auth state if this is the admin email
+            if (profile.email === 'libertydispatchers@gmail.com') {
+              setIsStaffAuthenticated(true);
+              setIsAdminAuthenticated(true);
+            }
           }
         });
       } catch (err) {
