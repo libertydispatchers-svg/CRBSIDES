@@ -1734,7 +1734,10 @@ export default function App() {
       const res = await fetch(`${BACKEND_URL}/api/users/${userId}`, {
         method: 'DELETE'
       });
-      if (!res.ok) throw new Error('Failed to delete user');
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${res.status}`);
+      }
       setAllUsers(prev => prev.filter(u => u.id !== userId));
       alert(`✅ User "${userName}" deleted successfully.`);
     } catch (err) {
@@ -2454,11 +2457,22 @@ export default function App() {
     }
   };
 
-  const handleDeleteCustomerAccount = () => {
+  const handleDeleteCustomerAccount = async () => {
     if (confirm("Are you sure you want to permanently delete your CURBSIDES customer account and card wallet? This action cannot be undone.")) {
+      if (customerUser?.id) {
+        const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+        try {
+          const res = await fetch(`${BACKEND_URL}/api/users/${customerUser.id}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error('Failed to delete account on server');
+        } catch (err) {
+          console.error("Account deletion error:", err);
+        }
+      }
       setCustomerUser(null);
       setCustomerCards([]);
       setCustomerActiveSubTab('profile');
+      setActiveTab('directory');
+      alert("Your account has been deleted.");
     }
   };
 
@@ -5077,7 +5091,7 @@ export default function App() {
                                     <div className="font-bold text-white uppercase text-sm">{item.name}</div>
                                     <div className="text-slate-400 text-[11px] mt-0.5 max-w-md line-clamp-2">{item.description || 'No description provided.'}</div>
                                   </td>
-                                  <td className="py-3 px-4 text-right font-mono font-bold text-white text-sm">${item.price.toFixed(2)}</td>
+                                  <td className="py-3 px-4 text-right font-mono font-bold text-white text-sm">${Number(item.price || 0).toFixed(2)}</td>
                                   <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
                                     <button
                                       onClick={() => {
@@ -6541,7 +6555,7 @@ export default function App() {
                               <td className="py-3 capitalize">{driver.vehicleType}</td>
                               <td className="py-3 font-semibold">{driver.boroughs.join(', ')}</td>
                               <td className="py-3">{driver.deliveries}</td>
-                              <td className="py-3 font-bold">${driver.earnings.toFixed(2)}</td>
+                              <td className="py-3 font-bold">${Number(driver.earnings || 0).toFixed(2)}</td>
                               <td className="py-3">
                                 <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
                                   driver.status === 'approved' 
@@ -6600,13 +6614,34 @@ export default function App() {
                               <td className="py-3 font-mono">{app.phone}</td>
                               <td className="py-3">{app.borough}</td>
                               <td className="py-3 font-semibold uppercase">{app.foodType}</td>
-                              <td className="py-3 uppercase text-[10px] font-bold text-amber-400">{app.status}</td>
-                              <td className="py-3 text-right">
+                              <td className="py-3 uppercase text-[10px] font-bold">
+                                <span className={app.status === 'approved' ? 'text-emerald-400' : 'text-amber-400'}>
+                                  {app.status}
+                                </span>
+                              </td>
+                              <td className="py-3 text-right space-x-2">
                                 <button
                                   onClick={() => app.status !== 'approved' ? setVendorReviewModal(app) : null}
                                   className={`px-2 py-1 border border-white rounded text-[10px] font-bold uppercase transition-all ${app.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 cursor-default' : 'bg-white text-black hover:bg-black hover:text-white cursor-pointer'}`}
                                 >
                                   {app.status === 'approved' ? 'Approved ✓' : 'Review Application'}
+                                </button>
+                                <button
+                                  onClick={async () => {
+                                    if (!window.confirm(`⚠️ Permanently delete vendor application from "${app.name}"?`)) return;
+                                    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+                                    try {
+                                      const res = await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, { method: 'DELETE' });
+                                      if (!res.ok) throw new Error('Failed to delete application');
+                                      setVendorApplications(prev => prev.filter(a => a.id !== app.id));
+                                      alert(`✅ Application deleted successfully.`);
+                                    } catch (err) {
+                                      alert(`Failed to delete application: ${err.message}`);
+                                    }
+                                  }}
+                                  className="px-2 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                                >
+                                  Delete
                                 </button>
                               </td>
                             </tr>
@@ -7034,7 +7069,11 @@ export default function App() {
                                 </span>
                               </td>
                               <td className="py-3 text-slate-500 font-mono text-[10px]">
-                                {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}
+                                {user.createdAt ? (
+                                  typeof user.createdAt === 'object' && user.createdAt.seconds
+                                    ? new Date(user.createdAt.seconds * 1000).toLocaleDateString()
+                                    : new Date(user.createdAt).toLocaleDateString()
+                                ) : '—'}
                               </td>
                               <td className="py-3 text-right space-x-2">
                                 <button
@@ -7121,13 +7160,13 @@ export default function App() {
                               return (
                                 <tr key={log.id} className="hover:bg-zinc-950 transition-colors">
                                   <td className="py-3.5 px-2 font-mono font-bold text-white uppercase">{log.orderId}</td>
-                                  <td className="py-3.5 px-2 text-slate-300">{log.distance.toFixed(1)} mi</td>
-                                  <td className="py-3.5 px-2 text-right font-mono">${log.subtotal.toFixed(2)}</td>
-                                  <td className="py-3.5 px-2 text-right font-mono text-amber-500/90">${vendorComm.toFixed(2)}</td>
-                                  <td className="py-3.5 px-2 text-right font-mono text-slate-400">${driverGross.toFixed(2)}</td>
-                                  <td className="py-3.5 px-2 text-right font-mono text-amber-500/90">${driverComm.toFixed(2)}</td>
-                                  <td className="py-3.5 px-2 text-right font-mono text-emerald-400 font-bold">${log.driverPay.toFixed(2)}</td>
-                                  <td className="py-3.5 px-2 text-right font-mono text-white font-black bg-white/5 border-l border-r border-white/5">${log.platformRev.toFixed(2)}</td>
+                                  <td className="py-3.5 px-2 text-slate-300">{Number(log.distance || 0).toFixed(1)} mi</td>
+                                  <td className="py-3.5 px-2 text-right font-mono">${Number(log.subtotal || 0).toFixed(2)}</td>
+                                  <td className="py-3.5 px-2 text-right font-mono text-amber-500/90">${Number(vendorComm || 0).toFixed(2)}</td>
+                                  <td className="py-3.5 px-2 text-right font-mono text-slate-400">${Number(driverGross || 0).toFixed(2)}</td>
+                                  <td className="py-3.5 px-2 text-right font-mono text-amber-500/90">${Number(driverComm || 0).toFixed(2)}</td>
+                                  <td className="py-3.5 px-2 text-right font-mono text-emerald-400 font-bold">${Number(log.driverPay || 0).toFixed(2)}</td>
+                                  <td className="py-3.5 px-2 text-right font-mono text-white font-black bg-white/5 border-l border-r border-white/5">${Number(log.platformRev || 0).toFixed(2)}</td>
                                   <td className="py-3.5 px-2 text-right font-mono text-[9px] text-slate-500">{new Date(log.timestamp).toLocaleTimeString()}</td>
                                 </tr>
                               );
