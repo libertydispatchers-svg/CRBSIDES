@@ -932,6 +932,19 @@ app.delete("/api/drivers/:id", async (req, res) => {
   }
 });
 
+// DELETE user endpoint
+app.delete("/api/users/:id", async (req, res) => {
+  try {
+    const user = await getDocument("users", req.params.id);
+    if (!user) return res.status(404).json({ error: "User not found" });
+    await firestore.collection("users").doc(req.params.id).delete();
+    res.json({ success: true, message: `User ${user.name || user.email} deleted` });
+  } catch (err) {
+    console.error("Delete user error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // --- SHOPIFY OAUTH HANDSHAKE ENDPOINTS ---
 
 // 1. Authorization Redirect Endpoint
