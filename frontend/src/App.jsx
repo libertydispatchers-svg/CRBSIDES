@@ -123,8 +123,9 @@ export default function App() {
   const [isStaffOpen, setIsStaffOpen] = useState(false);
   const [staffPasscode, setStaffPasscode] = useState('');
   const [staffError, setStaffError] = useState('');
-  const [adminSubTab, setAdminSubTab] = useState('drivers'); // 'drivers' | 'finance' | 'vendors' | 'applications' | 'support' | 'integrations'
+  const [adminSubTab, setAdminSubTab] = useState('drivers'); // 'drivers' | 'finance' | 'vendors' | 'applications' | 'support' | 'integrations' | 'users'
   const [adminError, setAdminError] = useState('');
+  const [allUsers, setAllUsers] = useState([]);
   const [isAdminNotificationsOpen, setIsAdminNotificationsOpen] = useState(false);
 
   // Vendor User Authentication & Dashboard State
@@ -566,6 +567,27 @@ export default function App() {
     
     return () => unsubscribe();
   }, [isConfigOpen]);
+
+  // Load all users for user management tab
+  useEffect(() => {
+    let unsubscribe = () => {};
+    async function loadAllUsers() {
+      try {
+        const { db, collection, onSnapshot } = await import('./firebase');
+        unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+          const usersList = snapshot.docs.map(doc => ({
+            id: doc.id,
+            ...doc.data()
+          }));
+          setAllUsers(usersList);
+        });
+      } catch (err) {
+        console.error("Failed to load users:", err);
+      }
+    }
+    loadAllUsers();
+    return () => unsubscribe();
+  }, []);
 
   // Pre-populate Sandbox checkout if customer logged in
   useEffect(() => {
@@ -1675,6 +1697,22 @@ export default function App() {
     } catch (err) {
       console.error('Delete driver failed:', err);
       alert(`Failed to delete driver: ${err.message}`);
+    }
+  };
+
+  const handleDeleteUser = async (userId, userName) => {
+    if (!window.confirm(`⚠️ Permanently delete user "${userName}"? This cannot be undone.`)) return;
+    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/users/${userId}`, {
+        method: 'DELETE'
+      });
+      if (!res.ok) throw new Error('Failed to delete user');
+      setAllUsers(prev => prev.filter(u => u.id !== userId));
+      alert(`✅ User "${userName}" deleted successfully.`);
+    } catch (err) {
+      console.error('Delete user failed:', err);
+      alert(`Failed to delete user: ${err.message}`);
     }
   };
 
@@ -6269,6 +6307,14 @@ export default function App() {
                             <span>Vendors</span>
                           </button>
                           <button
+                            onClick={() => setAdminSubTab('users')}
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer ${
+                              adminSubTab === 'users' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
+                            }`}
+                          >
+                            All Users
+                          </button>
+                          <button
                             onClick={() => setAdminSubTab('applications')}
                             className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
                               adminSubTab === 'applications' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
@@ -6691,12 +6737,16 @@ export default function App() {
                                       headers: { 'Content-Type': 'application/json' },
                                       body: JSON.stringify({ status: 'approved' })
                                     });
-                                    if (!res.ok) throw new Error('Approval failed');
+                                    if (!res.ok) {
+                                      const errorData = await res.json();
+                                      throw new Error(errorData.error || `HTTP ${res.status}`);
+                                    }
                                     const updated = await res.json();
                                     setDrivers(prev => prev.map(d => d.id === driverReviewModal.id ? updated : d));
                                     alert(`✅ ${updated.fullName} approved${updated.shipdayCarrierId ? ' and synced to Shipday' : ''}.`);
                                     setDriverReviewModal(null);
                                   } catch (err) {
+                                    console.error('Driver approval error:', err);
                                     alert(`Failed to approve driver: ${err.message}`);
                                   }
                                 }}
@@ -7029,6 +7079,64 @@ export default function App() {
                   </div>
                 )}
 
+                {/* Sub Tab: All Users */}
+                {adminSubTab === 'users' && (
+                  <div className="space-y-4">
+                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">All User Accounts & Permissions</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-white/20 font-bold uppercase text-slate-400">
+                            <th className="py-2.5">Name</th>
+                            <th className="py-2.5">Email</th>
+                            <th className="py-2.5">Phone</th>
+                            <th className="py-2.5">Role</th>
+                            <th className="py-2.5">Created</th>
+                            <th className="py-2.5 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-white/10">
+                          {allUsers.map(user => (
+                            <tr key={user.id} className="hover:bg-zinc-950 transition-colors">
+                              <td className="py-3 font-bold text-white uppercase">{user.name || user.displayName || 'Unknown User'}</td>
+                              <td className="py-3 text-slate-300 truncate max-w-xs">{user.email || 'No email'}</td>
+                              <td className="py-3 text-slate-400 font-mono text-[10px]">{user.phone || user.phoneNumber || '—'}</td>
+                              <td className="py-3">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${
+                                  user.role === 'admin' ? 'border-rose-500 bg-rose-500/10 text-rose-400' :
+                                  user.role === 'vendor' ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' :
+                                  user.role === 'driver' ? 'border-blue-500 bg-blue-500/10 text-blue-400' :
+                                  'border-slate-500 bg-slate-500/10 text-slate-400'
+                                }`}>
+                                  {user.role || 'customer'}
+                                </span>
+                              </td>
+                              <td className="py-3 text-slate-500 font-mono text-[10px]">
+                                {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}
+                              </td>
+                              <td className="py-3 text-right space-x-2">
+                                <button
+                                  onClick={() => handleDeleteUser(user.id, user.name || user.email)}
+                                  className="px-2.5 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                                >
+                                  Delete
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {allUsers.length === 0 && (
+                            <tr>
+                              <td colSpan="6" className="py-6 text-center text-slate-500 font-mono">
+                                No users found.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
                 {/* Sub Tab: Finance */}
                 {adminSubTab === 'finance' && (() => {
                   const totalSubtotal = financeLogs.reduce((acc, log) => acc + (log.subtotal || 0), 0);
@@ -7116,8 +7224,9 @@ export default function App() {
                       <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Shopify & Shipday Integration Hub</h3>
                       <div className="flex gap-2">
                         {(() => {
+                          const config = getShopifyConfig();
                           const hasStoredAdminToken = !!localStorage.getItem('curbsides_shopify_admin_token');
-                          const connected = (shopDomain && storefrontToken && (adminTokenInput || hasStoredAdminToken)) || isShopifyConnected();
+                          const connected = (config.domain && config.token && hasStoredAdminToken) || isShopifyConnected();
                           return connected;
                         })() ? (
                           <span className="flex items-center gap-1.5 text-[9px] bg-emerald-950/20 border border-emerald-500/30 px-2 py-0.5 rounded text-emerald-400 font-bold uppercase tracking-wider">
