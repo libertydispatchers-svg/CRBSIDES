@@ -1016,22 +1016,27 @@ app.delete("/api/vendor-applications/:id", async (req, res) => {
     // If the application has an email, attempt to delete associated user data
     if (application.email) {
       const email = application.email.toLowerCase().trim();
-      const deleteOps = [];
-      // Delete Firestore user document(s) matching email
-      const userSnap = await firestore.collection("users").where("email", "==", email).get();
-      userSnap.forEach(doc => {
-        deleteOps.push(deleteDocument("users", doc.id));
-      });
-      // Delete Firebase Auth user if exists
+      
+      // 1. Delete Firestore user document(s) matching email
       try {
-        const admin = require('firebase-admin');
-        const authUser = await admin.auth().getUserByEmail(email);
-        deleteOps.push(admin.auth().deleteUser(authUser.uid));
-      } catch (authErr) {
-        // If user not found in Auth, ignore
-        console.warn(`Auth user not found for ${email}:`, authErr.message);
+        const userSnap = await firestore.collection("users").where("email", "==", email).get();
+        const deleteOps = [];
+        userSnap.forEach(doc => {
+          deleteOps.push(deleteDocument("users", doc.id));
+        });
+        await Promise.all(deleteOps);
+      } catch (dbErr) {
+        console.error(`Failed to delete Firestore users for email ${email}:`, dbErr.message);
       }
-      await Promise.all(deleteOps);
+
+      // 2. Delete Firebase Auth user if exists
+      try {
+        const authUser = await getAuth().getUserByEmail(email);
+        await getAuth().deleteUser(authUser.uid);
+        console.log(`Successfully deleted Auth user for email ${email}`);
+      } catch (authErr) {
+        console.warn(`Auth user not found or could not be deleted for ${email}:`, authErr.message);
+      }
     }
     res.json({ success: true });
   } catch (err) {
