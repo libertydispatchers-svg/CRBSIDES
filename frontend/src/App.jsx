@@ -304,7 +304,9 @@ export default function App() {
           tags: data.tags || ['Approved'],
           items: [],
           earnings: data.earnings || 0,
-          logo: data.logo || data.photoURL || null
+          logo: data.logo || data.photoURL || null,
+          mobileGpsEnabled: data.mobileGpsEnabled || false,
+          multiLocationEnabled: data.multiLocationEnabled || false
         };
         await loadVendorProfile(vendorFromProfile);
         setSelectedPortalVendorId(vendorFromProfile.id);
@@ -337,10 +339,8 @@ export default function App() {
   const [supportInput, setSupportInput] = useState('');
   const [customerActiveSubTab, setCustomerActiveSubTab] = useState('profile'); // 'profile' | 'orders' | 'chat'
 
-  // Upgrade requests (for multi-truck)
-  const [upgradeRequests, setUpgradeRequests] = useState([
-    { id: 'up-1', vendorId: 'vendor-ramen-wheels', vendorName: 'Ramen on Wheels', requestedTrucks: 3, status: 'pending', timestamp: '2026-06-19T14:30:00Z' }
-  ]);
+  // Proposed address change state
+  const [proposedAddress, setProposedAddress] = useState('');
 
   // GPS address publishing state
   const [gpsAddressText, setGpsAddressText] = useState('');
@@ -490,7 +490,9 @@ export default function App() {
                 tags: profile.tags || ['Approved'],
                 items: [],
                 earnings: profile.earnings || 0,
-                logo: profile.logo || profile.photoURL || null
+                logo: profile.logo || profile.photoURL || null,
+                mobileGpsEnabled: profile.mobileGpsEnabled || false,
+                multiLocationEnabled: profile.multiLocationEnabled || false
               });
               setSelectedPortalVendorId(profile.id);
               if (isFirstLoad) {
@@ -542,6 +544,7 @@ export default function App() {
   // Real Database State for Admin Dashboard
   const [drivers, setDrivers] = useState([]);
   const [vendorApplications, setVendorApplications] = useState([]);
+  const [vendorRequests, setVendorRequests] = useState([]);
   const [shopifyLogs, setShopifyLogs] = useState([
     { timestamp: '2026-06-20 02:40:12', type: 'API FETCH', message: 'Querying 100 products from store catalog...', color: 'text-white' },
     { timestamp: '2026-06-20 02:40:13', type: 'RESOLVED', message: 'Found 4 active food trucks on storefront API.', color: 'text-slate-400' },
@@ -617,7 +620,11 @@ export default function App() {
                 isOpen: data.isOpen !== undefined ? data.isOpen : true,
                 rating: data.rating || 4.8,
                 tags: data.tags || [],
+                phone: data.phone || '',
+                foodType: data.foodType || '',
                 logo: data.logo || null,
+                mobileGpsEnabled: data.mobileGpsEnabled || false,
+                multiLocationEnabled: data.multiLocationEnabled || false,
                 items: items
               };
             });
@@ -937,6 +944,14 @@ export default function App() {
         unsubs.push(onSnapshot(ordersQ, (snapshot) => {
           const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
           setOrders(data);
+        }));
+
+        // Real-time vendor feature & location requests
+        const requestsQ = query(collection(db, 'vendor-requests'));
+        unsubs.push(onSnapshot(requestsQ, (snapshot) => {
+          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          data.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+          setVendorRequests(data);
         }));
       }
     };
@@ -1386,6 +1401,8 @@ export default function App() {
               items: [],
               earnings: profileData.earnings || 0,
               logo: profileData.photoURL || null,
+              mobileGpsEnabled: profileData.mobileGpsEnabled || false,
+              multiLocationEnabled: profileData.multiLocationEnabled || false
             };
             loadVendorProfile(sessionVendor);
             setSelectedPortalVendorId(sessionVendor.id);
@@ -1436,6 +1453,7 @@ export default function App() {
       customerAddress: checkoutAddress.trim(),
       vendorName: cart[0].vendorName,
       vendorAddress: vendorAddress,
+      vendorCoordinates: matchedV ? (matchedV.coordinates || null) : null,
       items: cart,
       total: getCartTotal()
     };
@@ -1737,6 +1755,42 @@ export default function App() {
     } catch (err) {
       console.error('Failed to approve vendor:', err);
       alert(`Failed to approve vendor: ${err.message}`);
+    }
+  };
+
+  const handleApproveRequest = async (req) => {
+    try {
+      const { db, doc, updateDoc } = await import('./firebase');
+      await updateDoc(doc(db, 'vendor-requests', req.id), { status: 'approved' });
+
+      const vendorRef = doc(db, 'users', req.vendorId);
+      const updates = {};
+      if (req.type === 'address_change') {
+        updates.location = req.details.address;
+        updates.borough = req.details.address;
+        updates.coordinates = req.details.coordinates;
+      } else if (req.type === 'mobile_gps') {
+        updates.mobileGpsEnabled = true;
+      } else if (req.type === 'multi_location') {
+        updates.multiLocationEnabled = true;
+      }
+      await updateDoc(vendorRef, updates);
+      alert(`✅ Request for ${req.type.replace('_', ' ')} approved successfully.`);
+    } catch (err) {
+      console.error("Failed to approve request:", err);
+      alert("Failed to approve request: " + err.message);
+    }
+  };
+
+  const handleRejectRequest = async (req) => {
+    if (!window.confirm("⚠️ Are you sure you want to reject this request?")) return;
+    try {
+      const { db, doc, updateDoc } = await import('./firebase');
+      await updateDoc(doc(db, 'vendor-requests', req.id), { status: 'rejected' });
+      alert(`❌ Request for ${req.type.replace('_', ' ')} has been rejected.`);
+    } catch (err) {
+      console.error("Failed to reject request:", err);
+      alert("Failed to reject request: " + err.message);
     }
   };
 
@@ -2762,6 +2816,27 @@ export default function App() {
     } catch (err) {
       console.error("Failed to update store profile:", err);
       alert("Failed to update store profile.");
+    }
+  };
+
+  // Submit vendor feature or location request
+  const handleRequestFeature = async (type, details = {}) => {
+    if (!vendorUser) return;
+    try {
+      const { db, collection, addDoc } = await import('./firebase');
+      const requestData = {
+        vendorId: vendorUser.id,
+        vendorName: vendorUser.name,
+        type, // 'address_change' | 'mobile_gps' | 'multi_location'
+        details,
+        status: 'pending',
+        timestamp: new Date().toISOString()
+      };
+      await addDoc(collection(db, 'vendor-requests'), requestData);
+      alert(`✅ Request for ${type.replace('_', ' ')} submitted to admin.`);
+    } catch (err) {
+      console.error("Failed to submit request:", err);
+      alert("Failed to submit request.");
     }
   };
 
@@ -4885,7 +4960,7 @@ export default function App() {
                     )}
                   </div>
                   
-                  <div className="flex gap-2">
+                  <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 w-full">
                     <button
                       onClick={() => setVendorActiveSubTab('menu')}
                       className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
@@ -4896,7 +4971,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => setVendorActiveSubTab('orders')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 ${
+                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 ${
                         vendorActiveSubTab === 'orders' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                       }`}
                     >
@@ -4922,14 +4997,6 @@ export default function App() {
                       })()}
                     </button>
                     <button
-                      onClick={() => setVendorActiveSubTab('gps')}
-                      className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
-                        vendorActiveSubTab === 'gps' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
-                      }`}
-                    >
-                      Live GPS
-                    </button>
-                    <button
                       onClick={() => setVendorActiveSubTab('profile')}
                       className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all ${
                         vendorActiveSubTab === 'profile' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
@@ -4947,7 +5014,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={handleVendorLogout}
-                      className="px-3 py-1.5 border border-red-500 rounded text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all"
+                      className="col-span-2 sm:col-span-1 px-3 py-1.5 border border-red-500 rounded text-xs font-bold uppercase bg-black text-red-500 hover:bg-red-500 hover:text-white transition-all text-center"
                     >
                       Logout
                     </button>
@@ -5304,114 +5371,7 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Subtab: Live GPS location */}
-                {vendorActiveSubTab === 'gps' && (
-                  <div className="space-y-6">
-                    <div className="text-center max-w-md mx-auto py-4">
-                      <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
-                        Live Dispatch Ledger
-                      </span>
-                      <h3 className="text-lg font-bold uppercase text-white font-heading mt-3">GPS Location Publisher</h3>
-                      <p className="text-xs text-slate-400 mt-1">Publish your street location coordinates or enter a street address directly to the map discoverer.</p>
-                    </div>
 
-                    <div className="max-w-md mx-auto border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
-                      {gpsStatus && (
-                        <div className="border border-white/25 p-3 rounded-lg text-xs bg-black font-semibold space-y-1 text-center">
-                          <div className="text-white uppercase font-bold tracking-wider">{gpsStatus}</div>
-                          {gpsCoords && (
-                            <div className="text-[10px] text-slate-400 font-mono">
-                              Latitude: {gpsCoords.lat.toFixed(6)} | Longitude: {gpsCoords.lon.toFixed(6)}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Method A: GPS Coordinates */}
-                      <button
-                        onClick={handleUpdateGps}
-                        className="w-full py-4 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer flex items-center justify-center gap-2 font-heading"
-                      >
-                        <Locate className="w-5 h-5" />
-                        Tap to Publish Live GPS
-                      </button>
-
-                      <div className="relative flex py-2 items-center">
-                        <div className="flex-grow border-t border-white/10"></div>
-                        <span className="flex-shrink mx-4 text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">OR ENTER STREET ADDRESS</span>
-                        <div className="flex-grow border-t border-white/10"></div>
-                      </div>
-
-                      {/* Method B: Address Text geocoding simulation */}
-                      <form onSubmit={(e) => {
-                        e.preventDefault();
-                        if (!gpsAddressText.trim()) {
-                          setGpsStatus("Please enter an address.");
-                          return;
-                        }
-                        setGpsStatus(`Geocoding and publishing: "${gpsAddressText}"...`);
-                        
-                        // Geocode simulation (derive coordinates in NYC area)
-                        setTimeout(async () => {
-                          const lat = 40.7128 + (Math.random() - 0.5) * 0.08;
-                          const lon = -74.0060 + (Math.random() - 0.5) * 0.08;
-                          setGpsCoords({ lat, lon });
-                          setGpsStatus(`Address successfully geocoded and published to live map!`);
-                          
-                          try {
-                            const { db, doc, updateDoc } = await import('./firebase');
-                            await updateDoc(doc(db, 'users', vendorUser.id), {
-                              coordinates: [lat, lon],
-                              location: gpsAddressText.trim(),
-                              borough: gpsAddressText.trim(),
-                              isOpen: true
-                            });
-                            setVendorUser(prev => prev ? {
-                              ...prev,
-                              coordinates: [lat, lon],
-                              location: gpsAddressText.trim(),
-                              borough: gpsAddressText.trim(),
-                              isOpen: true
-                            } : null);
-                          } catch (dbErr) {
-                            console.error("Failed to persist address location in Firestore:", dbErr);
-                          }
-
-                          // Update coordinates in the map/vendors list dynamically
-                          setVendors(prev => prev.map(v => {
-                            if (v.id === vendorUser.id) {
-                              return {
-                                ...v,
-                                borough: gpsAddressText.trim(),
-                                coordinates: [lat, lon],
-                                isOpen: true
-                              };
-                            }
-                            return v;
-                          }));
-                          console.log(`[Firestore Address Geocode] Updated vendor ${vendorUser.id} coordinates to: [${lat}, ${lon}] at "${gpsAddressText}"`);
-                        }, 1000);
-                      }} className="space-y-3">
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-heading">Street Address</label>
-                          <input
-                            type="text"
-                            placeholder="e.g. 5th Ave & 34th St, NYC"
-                            value={gpsAddressText}
-                            onChange={(e) => setGpsAddressText(e.target.value)}
-                            className="w-full px-4 py-2.5 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-sans"
-                          />
-                        </div>
-                        <button
-                          type="submit"
-                          className="w-full py-2.5 border border-white rounded-lg bg-black text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                        >
-                          Geocode & Publish Location
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                )}
 
                 {/* Subtab: Store Profile */}
                 {vendorActiveSubTab === 'profile' && (
@@ -5527,43 +5487,255 @@ export default function App() {
                       </div>
                     </form>
 
-                    {/* Fleet Upgrade Panel */}
-                    <div className="mt-6 border-t border-white/20 pt-6 max-w-md mx-auto animate-fade-in">
+                    {/* Location Settings & Privileges Panel */}
+                    <div className="mt-8 border-t border-white/20 pt-8 max-w-md mx-auto space-y-6 animate-fade-in">
+                      {/* Section 1: Location Settings */}
                       <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
-                        <div>
-                          <h4 className="text-xs font-bold uppercase text-white tracking-wider font-heading">Multi-Truck Fleet Upgrade</h4>
-                          <p className="text-[11px] text-slate-400 mt-1">Want to expand your operations? Apply to manage multiple food trucks under your vendor profile.</p>
+                        <div className="border-b border-white/10 pb-3">
+                          <h4 className="text-xs font-bold uppercase text-white tracking-wider font-heading">Location Settings</h4>
+                          <p className="text-[10px] text-slate-400 mt-1">Configure and manage your physical store location and dispatch coordinate pinning.</p>
                         </div>
-                        
-                        {upgradeRequests.some(r => r.vendorId === vendorUser.id && r.status === 'pending') ? (
-                          <div className="p-3 border border-amber-500 bg-amber-950/20 text-amber-500 text-xs font-bold uppercase text-center rounded">
-                            Upgrade Request Pending Admin Review
+
+                        {/* Current Location Display */}
+                        <div className="p-3 bg-black rounded border border-white/10 space-y-1.5">
+                          <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Set Storefront Location</div>
+                          <div className="text-xs font-bold text-white uppercase">{vendorUser.location || vendorUser.borough || 'No address set'}</div>
+                          {vendorUser.coordinates && (
+                            <div className="text-[9px] text-slate-400 font-mono">
+                              Latitude: {vendorUser.coordinates[0].toFixed(6)} | Longitude: {vendorUser.coordinates[1].toFixed(6)}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Address Change Request Form */}
+                        <form onSubmit={(e) => {
+                          e.preventDefault();
+                          if (!proposedAddress.trim()) {
+                            alert("Please enter a proposed address.");
+                            return;
+                          }
+                          // Geocode simulation (derive coordinates in NYC area)
+                          const lat = 40.7128 + (Math.random() - 0.5) * 0.08;
+                          const lon = -74.0060 + (Math.random() - 0.5) * 0.08;
+                          handleRequestFeature('address_change', {
+                            address: proposedAddress.trim(),
+                            coordinates: [lat, lon]
+                          });
+                          setProposedAddress('');
+                        }} className="space-y-3">
+                          <div>
+                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 font-heading">Request Address Change</label>
+                            <input
+                              type="text"
+                              placeholder="e.g. 5th Ave & 34th St, NYC"
+                              value={proposedAddress}
+                              onChange={(e) => setProposedAddress(e.target.value)}
+                              className="w-full px-4 py-2.5 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-sans"
+                            />
                           </div>
-                        ) : upgradeRequests.some(r => r.vendorId === vendorUser.id && r.status === 'approved') ? (
-                          <div className="p-3 border border-emerald-500 bg-emerald-950/20 text-emerald-500 text-xs font-bold uppercase text-center rounded">
-                            Multi-Truck Privilege: Approved (Level 2)
+                          <button
+                            type="submit"
+                            className="w-full py-2.5 border border-white rounded-lg bg-black text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                          >
+                            Submit Location Change Request
+                          </button>
+                        </form>
+                      </div>
+
+                      {/* Section 2: Mobile GPS Pinning (Replaces the Live GPS tab if approved) */}
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="border-b border-white/10 pb-3 flex justify-between items-center">
+                          <div>
+                            <h4 className="text-xs font-bold uppercase text-white tracking-wider font-heading">Mobile GPS Pinning</h4>
+                            <p className="text-[10px] text-slate-400 mt-1">Pin your exact coordinates live from a mobile or tablet device.</p>
+                          </div>
+                          {vendorUser.mobileGpsEnabled ? (
+                            <span className="text-[8px] bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Enabled</span>
+                          ) : (
+                            <span className="text-[8px] bg-slate-900 text-slate-400 border border-slate-700 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Locked</span>
+                          )}
+                        </div>
+
+                        {vendorUser.mobileGpsEnabled ? (
+                          <div className="space-y-4">
+                            {gpsStatus && (
+                              <div className="border border-white/25 p-3 rounded-lg text-xs bg-black font-semibold space-y-1 text-center">
+                                <div className="text-white uppercase font-bold tracking-wider">{gpsStatus}</div>
+                                {gpsCoords && (
+                                  <div className="text-[10px] text-slate-400 font-mono">
+                                    Latitude: {gpsCoords.lat.toFixed(6)} | Longitude: {gpsCoords.lon.toFixed(6)}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Method A: GPS Coordinates */}
+                            <button
+                              type="button"
+                              onClick={handleUpdateGps}
+                              className="w-full py-4 border-2 border-white rounded-xl bg-white text-black font-extrabold text-xs uppercase hover:bg-black hover:text-white transition-all cursor-pointer flex items-center justify-center gap-2 font-heading"
+                            >
+                              <Locate className="w-5 h-5 animate-pulse" />
+                              Tap to Publish Live GPS
+                            </button>
+
+                            <div className="relative flex py-2 items-center">
+                              <div className="flex-grow border-t border-white/10"></div>
+                              <span className="flex-shrink mx-4 text-[9px] font-extrabold text-slate-500 uppercase tracking-wider">OR ENTER STREET ADDRESS</span>
+                              <div className="flex-grow border-t border-white/10"></div>
+                            </div>
+
+                            {/* Method B: Address Text geocoding simulation */}
+                            <form onSubmit={(e) => {
+                              e.preventDefault();
+                              if (!gpsAddressText.trim()) {
+                                setGpsStatus("Please enter an address.");
+                                return;
+                              }
+                              setGpsStatus(`Geocoding and publishing: "${gpsAddressText}"...`);
+                              
+                              // Geocode simulation (derive coordinates in NYC area)
+                              setTimeout(async () => {
+                                const lat = 40.7128 + (Math.random() - 0.5) * 0.08;
+                                const lon = -74.0060 + (Math.random() - 0.5) * 0.08;
+                                setGpsCoords({ lat, lon });
+                                setGpsStatus(`Address successfully geocoded and published to live map!`);
+                                
+                                try {
+                                  const { db, doc, updateDoc } = await import('./firebase');
+                                  await updateDoc(doc(db, 'users', vendorUser.id), {
+                                    coordinates: [lat, lon],
+                                    location: gpsAddressText.trim(),
+                                    borough: gpsAddressText.trim(),
+                                    isOpen: true
+                                  });
+                                  setVendorUser(prev => prev ? {
+                                    ...prev,
+                                    coordinates: [lat, lon],
+                                    location: gpsAddressText.trim(),
+                                    borough: gpsAddressText.trim(),
+                                    isOpen: true
+                                  } : null);
+                                } catch (dbErr) {
+                                  console.error("Failed to persist address location in Firestore:", dbErr);
+                                }
+
+                                // Update coordinates in the map/vendors list dynamically
+                                setVendors(prev => prev.map(v => {
+                                  if (v.id === vendorUser.id) {
+                                    return {
+                                      ...v,
+                                      borough: gpsAddressText.trim(),
+                                      coordinates: [lat, lon],
+                                      isOpen: true
+                                    };
+                                  }
+                                  return v;
+                                }));
+                              }, 1000);
+                            }} className="space-y-3">
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 font-heading">Street Address</label>
+                                <input
+                                  type="text"
+                                  placeholder="e.g. 5th Ave & 34th St, NYC"
+                                  value={gpsAddressText}
+                                  onChange={(e) => setGpsAddressText(e.target.value)}
+                                  className="w-full px-4 py-2.5 rounded-lg bg-black border border-white/20 text-xs text-white focus:border-white focus:outline-none font-sans"
+                                />
+                              </div>
+                              <button
+                                type="submit"
+                                className="w-full py-2.5 border border-white rounded-lg bg-black text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                              >
+                                Geocode & Publish Location
+                              </button>
+                            </form>
                           </div>
                         ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const newReq = {
-                                id: 'up-' + Date.now(),
-                                vendorId: vendorUser.id,
-                                vendorName: vendorUser.name,
-                                requestedTrucks: 3,
-                                status: 'pending',
-                                timestamp: new Date().toISOString()
-                              };
-                              setUpgradeRequests([...upgradeRequests, newReq]);
-                              alert("Fleet upgrade request sent to the administrator console.");
-                            }}
-                            className="w-full py-2.5 border-2 border-white rounded-lg bg-black text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
-                          >
-                            Request Fleet Manager Upgrade (3 Trucks)
-                          </button>
+                          <div className="space-y-3">
+                            <p className="text-[10px] text-slate-400">Request mobile GPS pinning to update your coordinates dynamically from the field (food trucks, mobile carts).</p>
+                            {vendorRequests.some(r => r.vendorId === vendorUser.id && r.type === 'mobile_gps' && r.status === 'pending') ? (
+                              <div className="p-3 border border-amber-500 bg-amber-950/20 text-amber-500 text-xs font-bold uppercase text-center rounded">
+                                Mobile GPS Request Pending Review
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleRequestFeature('mobile_gps')}
+                                className="w-full py-2.5 border border-white rounded-lg bg-black text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                              >
+                                Request Mobile GPS Pinning
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
+
+                      {/* Section 3: Multi-Location Fleet Privilege */}
+                      <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                        <div className="border-b border-white/10 pb-3 flex justify-between items-center">
+                          <div>
+                            <h4 className="text-xs font-bold uppercase text-white tracking-wider font-heading">Multi-Location Privilege</h4>
+                            <p className="text-[10px] text-slate-400 mt-1">Manage multiple pickup points or food trucks under one corporate profile.</p>
+                          </div>
+                          {vendorUser.multiLocationEnabled ? (
+                            <span className="text-[8px] bg-emerald-950 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Enabled</span>
+                          ) : (
+                            <span className="text-[8px] bg-slate-900 text-slate-400 border border-slate-700 px-2 py-0.5 rounded uppercase font-bold tracking-wider">Locked</span>
+                          )}
+                        </div>
+
+                        {vendorUser.multiLocationEnabled ? (
+                          <div className="p-3 border border-emerald-500 bg-emerald-950/20 text-emerald-400 text-xs font-bold uppercase text-center rounded">
+                            Multi-Location Profile Privilege: Active (Level 2)
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            <p className="text-[10px] text-slate-400">Request permission to add and configure multiple storefronts and dispatch trucks.</p>
+                            {vendorRequests.some(r => r.vendorId === vendorUser.id && r.type === 'multi_location' && r.status === 'pending') ? (
+                              <div className="p-3 border border-amber-500 bg-amber-950/20 text-amber-500 text-xs font-bold uppercase text-center rounded">
+                                Multi-Location Request Pending Review
+                              </div>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleRequestFeature('multi_location')}
+                                className="w-full py-2.5 border border-white rounded-lg bg-black text-white font-bold text-xs uppercase hover:bg-white hover:text-black transition-all cursor-pointer font-heading"
+                              >
+                                Request Multi-Location Upgrade
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Section 4: Request Logs */}
+                      {vendorRequests.filter(r => r.vendorId === vendorUser.id).length > 0 && (
+                        <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
+                          <h4 className="text-xs font-bold uppercase text-white tracking-wider font-heading border-b border-white/10 pb-2">Request History</h4>
+                          <div className="space-y-3 max-h-48 overflow-y-auto">
+                            {vendorRequests.filter(r => r.vendorId === vendorUser.id).map(r => (
+                              <div key={r.id} className="p-3 bg-black rounded border border-white/10 flex justify-between items-start text-[11px]">
+                                <div>
+                                  <div className="font-bold text-white uppercase">{r.type.replace('_', ' ')}</div>
+                                  <div className="text-slate-400 mt-0.5">
+                                    {r.type === 'address_change' ? r.details?.address : 'Feature Privilege request'}
+                                  </div>
+                                  <div className="text-[9px] text-slate-500 mt-1">{new Date(r.timestamp).toLocaleString()}</div>
+                                </div>
+                                <span className={`px-2 py-0.5 rounded text-[9px] font-bold uppercase ${
+                                  r.status === 'pending' ? 'bg-amber-950 text-amber-500 border border-amber-500/30' :
+                                  r.status === 'approved' ? 'bg-emerald-950 text-emerald-500 border border-emerald-500/30' :
+                                  'bg-rose-950 text-rose-500 border border-rose-500/30'
+                                }`}>
+                                  {r.status}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -6276,8 +6448,8 @@ export default function App() {
                 {(() => {
                   const pendingDriversCount = drivers.filter(d => d.status === 'pending').length;
                   const pendingVendorAppsCount = vendorApplications.filter(a => a.status === 'pending').length;
-                  const pendingUpgradesCount = upgradeRequests.filter(u => u.status === 'pending').length;
-                  const totalAppsCount = pendingVendorAppsCount + pendingUpgradesCount;
+                  const pendingRequestsCount = vendorRequests.filter(r => r.status === 'pending').length;
+                  const totalAppsCount = pendingVendorAppsCount + pendingRequestsCount;
                   const pendingOrdersCount = orders.filter(o => o.status === 'pending').length;
 
                   let unrepliedSupportCount = 0;
@@ -6320,12 +6492,12 @@ export default function App() {
                       });
                     }
                   });
-                  upgradeRequests.forEach(u => {
-                    if (u.status === 'pending') {
+                  vendorRequests.forEach(r => {
+                    if (r.status === 'pending') {
                       alerts.push({
-                        id: `upgrade-${u.id}`,
-                        type: 'upgrade',
-                        text: `Multi-truck fleet upgrade request from ${u.vendorName} is pending.`,
+                        id: `request-${r.id}`,
+                        type: 'request',
+                        text: `Vendor request for ${r.type.replace('_', ' ')} from ${r.vendorName} is pending.`,
                         tab: 'applications',
                         severity: 'amber'
                       });
@@ -6423,10 +6595,10 @@ export default function App() {
                             <p className="text-xs text-slate-400 mt-0.5">Manage drivers, vendors, and fleet operations in one location.</p>
                           </div>
                         </div>
-                        <div className="flex gap-2 flex-wrap">
+                        <div className="grid grid-cols-3 sm:flex sm:flex-wrap gap-2 w-full">
                           <button
                             onClick={() => setAdminSubTab('drivers')}
-                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 relative cursor-pointer ${
                               adminSubTab === 'drivers' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                             }`}
                           >
@@ -6439,7 +6611,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => setAdminSubTab('orders')}
-                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 relative cursor-pointer ${
                               adminSubTab === 'orders' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                             }`}
                           >
@@ -6452,7 +6624,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => setAdminSubTab('vendors')}
-                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 relative cursor-pointer ${
                               adminSubTab === 'vendors' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                             }`}
                           >
@@ -6460,7 +6632,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => setAdminSubTab('users')}
-                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer ${
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center cursor-pointer ${
                               adminSubTab === 'users' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                             }`}
                           >
@@ -6468,7 +6640,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => setAdminSubTab('applications')}
-                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 relative cursor-pointer ${
                               adminSubTab === 'applications' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                             }`}
                           >
@@ -6481,7 +6653,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => setAdminSubTab('finance')}
-                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 relative cursor-pointer ${
                               adminSubTab === 'finance' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                             }`}
                           >
@@ -6494,7 +6666,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => setAdminSubTab('support')}
-                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 relative cursor-pointer ${
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 relative cursor-pointer ${
                               adminSubTab === 'support' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                             }`}
                           >
@@ -6507,7 +6679,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={() => setAdminSubTab('integrations')}
-                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all cursor-pointer ${
+                            className={`px-3 py-1.5 border border-white rounded text-xs font-bold uppercase transition-all flex items-center justify-center cursor-pointer ${
                               adminSubTab === 'integrations' ? 'bg-white text-black' : 'bg-black text-white hover:bg-white/10'
                             }`}
                           >
@@ -6515,7 +6687,7 @@ export default function App() {
                           </button>
                           <button
                             onClick={handleStaffLogout}
-                            className="px-3 py-1.5 border border-rose-500/50 text-rose-400 hover:bg-rose-500/10 rounded text-xs font-bold uppercase transition-all flex items-center gap-1.5 cursor-pointer ml-auto"
+                            className="col-span-3 sm:col-span-1 px-3 py-1.5 border border-rose-500/50 text-rose-400 hover:bg-rose-500/10 rounded text-xs font-bold uppercase transition-all flex items-center justify-center gap-1.5 cursor-pointer sm:ml-auto"
                           >
                             Sign Out
                           </button>
@@ -6702,65 +6874,69 @@ export default function App() {
                 {adminSubTab === 'applications' && (
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Incoming Vendor Requests</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left text-xs border-collapse">
-                        <thead>
-                          <tr className="border-b border-white/20 font-bold uppercase text-slate-400">
-                            <th className="py-2.5">Business Name</th>
-                            <th className="py-2.5">Email</th>
-                            <th className="py-2.5">Phone</th>
-                            <th className="py-2.5">Borough</th>
-                            <th className="py-2.5">Food Type</th>
-                            <th className="py-2.5">Status</th>
-                            <th className="py-2.5 text-right">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/10">
-                          {vendorApplications.map(app => (
-                            <tr key={app.id} className="hover:bg-zinc-950 transition-colors">
-                              <td className="py-3 font-bold text-white uppercase">{app.name}</td>
-                              <td className="py-3">{app.email}</td>
-                              <td className="py-3 font-mono">{app.phone}</td>
-                              <td className="py-3">{app.borough}</td>
-                              <td className="py-3 font-semibold uppercase">{app.foodType}</td>
-                              <td className="py-3 uppercase text-[10px] font-bold">
-                                <span className={app.status === 'approved' ? 'text-emerald-400' : 'text-amber-400'}>
-                                  {app.status}
-                                </span>
-                              </td>
-                              <td className="py-3 text-right space-x-2">
-                                <button
-                                  onClick={() => app.status !== 'approved' ? setVendorReviewModal(app) : null}
-                                  className={`px-2 py-1 border border-white rounded text-[10px] font-bold uppercase transition-all ${app.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 cursor-default' : 'bg-white text-black hover:bg-black hover:text-white cursor-pointer'}`}
-                                >
-                                  {app.status === 'approved' ? 'Approved ✓' : 'Review Application'}
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    if (!window.confirm(`⚠️ Permanently delete vendor application from "${app.name}"?`)) return;
-                                    const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
-                                    try {
-                                      const res = await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, { method: 'DELETE' });
-                                      if (!res.ok) {
-                                        const errorData = await res.json().catch(() => ({}));
-                                        throw new Error(errorData.error || `HTTP ${res.status}`);
-                                      }
-                                      setVendorApplications(prev => prev.filter(a => a.id !== app.id));
-                                      alert(`✅ Application deleted successfully.`);
-                                    } catch (err) {
-                                      alert(`Failed to delete application: ${err.message}`);
-                                    }
-                                  }}
-                                  className="px-2 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
-                                >
-                                  Delete
-                                </button>
-                              </td>
+                    {vendorApplications.filter(app => app.status !== 'approved').length === 0 ? (
+                      <p className="text-xs text-slate-500 italic py-2">No pending vendor onboarding applications.</p>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-white/20 font-bold uppercase text-slate-400">
+                              <th className="py-2.5">Business Name</th>
+                              <th className="py-2.5">Email</th>
+                              <th className="py-2.5">Phone</th>
+                              <th className="py-2.5">Borough</th>
+                              <th className="py-2.5">Food Type</th>
+                              <th className="py-2.5">Status</th>
+                              <th className="py-2.5 text-right">Actions</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                          </thead>
+                          <tbody className="divide-y divide-white/10">
+                            {vendorApplications.filter(app => app.status !== 'approved').map(app => (
+                              <tr key={app.id} className="hover:bg-zinc-950 transition-colors">
+                                <td className="py-3 font-bold text-white uppercase">{app.name}</td>
+                                <td className="py-3">{app.email}</td>
+                                <td className="py-3 font-mono">{app.phone}</td>
+                                <td className="py-3">{app.borough}</td>
+                                <td className="py-3 font-semibold uppercase">{app.foodType}</td>
+                                <td className="py-3 uppercase text-[10px] font-bold">
+                                  <span className={app.status === 'approved' ? 'text-emerald-400' : 'text-amber-400'}>
+                                    {app.status}
+                                  </span>
+                                </td>
+                                <td className="py-3 text-right space-x-2">
+                                  <button
+                                    onClick={() => app.status !== 'approved' ? setVendorReviewModal(app) : null}
+                                    className={`px-2 py-1 border border-white rounded text-[10px] font-bold uppercase transition-all ${app.status === 'approved' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 cursor-default' : 'bg-white text-black hover:bg-black hover:text-white cursor-pointer'}`}
+                                  >
+                                    {app.status === 'approved' ? 'Approved ✓' : 'Review Application'}
+                                  </button>
+                                  <button
+                                    onClick={async () => {
+                                      if (!window.confirm(`⚠️ Permanently delete vendor application from "${app.name}"?`)) return;
+                                      const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
+                                      try {
+                                        const res = await fetch(`${BACKEND_URL}/api/vendor-applications/${app.id}`, { method: 'DELETE' });
+                                        if (!res.ok) {
+                                          const errorData = await res.json().catch(() => ({}));
+                                          throw new Error(errorData.error || `HTTP ${res.status}`);
+                                        }
+                                        setVendorApplications(prev => prev.filter(a => a.id !== app.id));
+                                        alert(`✅ Application deleted successfully.`);
+                                      } catch (err) {
+                                        alert(`Failed to delete application: ${err.message}`);
+                                      }
+                                    }}
+                                    className="px-2 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                                  >
+                                    Delete
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
 
                     {/* Vendor Review Modal */}
                     {vendorReviewModal && (
@@ -6830,57 +7006,72 @@ export default function App() {
                       </div>
                     )}
 
-                    {/* Multi-Truck Fleet Upgrade Requests */}
+                    {/* Feature & Location Change Requests */}
                     <div className="border-t border-white/20 pt-6 mt-6 animate-fade-in">
-                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">Multi-Truck Fleet Upgrade Requests</h3>
-                      {upgradeRequests.length === 0 ? (
-                        <p className="text-xs text-slate-500 italic">No pending fleet upgrade requests.</p>
+                      <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">Feature & Location Change Requests</h3>
+                      {vendorRequests.length === 0 ? (
+                        <p className="text-xs text-slate-500 italic">No pending feature or location requests.</p>
                       ) : (
                         <div className="overflow-x-auto">
                           <table className="w-full text-left text-xs border-collapse">
                             <thead>
                               <tr className="border-b border-white/20 font-bold uppercase text-slate-400">
-                                <th className="py-2.5">Food Truck</th>
-                                <th className="py-2.5">Upgrade Details</th>
+                                <th className="py-2.5">Vendor Name</th>
+                                <th className="py-2.5">Request Type</th>
+                                <th className="py-2.5">Proposed Details</th>
                                 <th className="py-2.5">Date Requested</th>
                                 <th className="py-2.5">Status</th>
                                 <th className="py-2.5 text-right">Actions</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-white/10 text-slate-300">
-                              {upgradeRequests.map(req => (
+                              {vendorRequests.map(req => (
                                 <tr key={req.id} className="hover:bg-zinc-950 transition-colors">
                                   <td className="py-3 font-bold text-white uppercase">{req.vendorName}</td>
-                                  <td className="py-3 text-slate-400">Requesting manager role for {req.requestedTrucks} trucks</td>
-                                  <td className="py-3 text-slate-500 font-mono">{new Date(req.timestamp).toLocaleDateString()}</td>
+                                  <td className="py-3 font-semibold uppercase text-slate-400">{req.type.replace('_', ' ')}</td>
+                                  <td className="py-3 text-slate-300 max-w-xs truncate">
+                                    {req.type === 'address_change' ? (
+                                      <span>
+                                        <strong>Addr:</strong> {req.details?.address} <br/>
+                                        <span className="text-[9px] text-slate-500 font-mono">
+                                          Coordinates: [{req.details?.coordinates?.map(c => c.toFixed(4)).join(', ')}]
+                                        </span>
+                                      </span>
+                                    ) : req.type === 'mobile_gps' ? (
+                                      <span>Unlock Live GPS coordinates pinning from mobile/tablet</span>
+                                    ) : req.type === 'multi_location' ? (
+                                      <span>Unlock multiple storefronts / truck fleets management</span>
+                                    ) : (
+                                      <span>Upgrade privilege request</span>
+                                    )}
+                                  </td>
+                                  <td className="py-3 text-slate-500 font-mono">{new Date(req.timestamp).toLocaleString()}</td>
                                   <td className="py-3 uppercase text-[10px] font-bold">
-                                    <span className={req.status === 'approved' ? 'text-emerald-500' : req.status === 'rejected' ? 'text-rose-500' : 'text-amber-500'}>
+                                    <span className={
+                                      req.status === 'approved' ? 'text-emerald-500' :
+                                      req.status === 'rejected' ? 'text-rose-500' :
+                                      'text-amber-500 animate-pulse'
+                                    }>
                                       {req.status}
                                     </span>
                                   </td>
                                   <td className="py-3 text-right space-x-2">
-                                    {req.status === 'pending' && (
+                                    {req.status === 'pending' ? (
                                       <>
                                         <button
-                                          onClick={() => {
-                                            setUpgradeRequests(upgradeRequests.map(r => r.id === req.id ? { ...r, status: 'approved' } : r));
-                                            alert(`Approved ${req.vendorName} for multi-truck fleet manager privileges.`);
-                                          }}
+                                          onClick={() => handleApproveRequest(req)}
                                           className="px-2 py-1 border border-emerald-500 rounded text-[10px] font-bold uppercase bg-emerald-950/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all cursor-pointer"
                                         >
                                           Approve
                                         </button>
                                         <button
-                                          onClick={() => {
-                                            setUpgradeRequests(upgradeRequests.map(r => r.id === req.id ? { ...r, status: 'rejected' } : r));
-                                          }}
+                                          onClick={() => handleRejectRequest(req)}
                                           className="px-2 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-950/20 text-rose-500 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
                                         >
                                           Reject
                                         </button>
                                       </>
-                                    )}
-                                    {req.status !== 'pending' && (
+                                    ) : (
                                       <span className="text-[10px] text-slate-500 uppercase font-bold">Processed</span>
                                     )}
                                   </td>
@@ -6999,7 +7190,10 @@ export default function App() {
                               coordinates: null,
                               rating: 5.0,
                               items: [],
-                              source: 'application'
+                              source: 'application',
+                              phone: app.phone || '',
+                              email: app.email || '',
+                              foodType: app.foodType || ''
                             }));
                       return (
                     <div className="overflow-x-auto">
@@ -7007,6 +7201,7 @@ export default function App() {
                         <thead>
                           <tr className="border-b border-white/20 font-bold uppercase text-slate-400">
                             <th className="py-2.5">Vendor Name</th>
+                            <th className="py-2.5">Contact Info</th>
                             <th className="py-2.5">Operating Borough</th>
                             <th className="py-2.5">Active Menu Items</th>
                             <th className="py-2.5">Rating</th>
@@ -7017,9 +7212,20 @@ export default function App() {
                         <tbody className="divide-y divide-white/10">
                           {vendorDirectory.map(vendor => (
                             <tr key={vendor.id} className="hover:bg-zinc-950 transition-colors">
-                              <td className="py-3 font-bold text-white uppercase">{vendor.name}</td>
+                              <td className="py-3 font-bold text-white uppercase">
+                                {vendor.name}
+                                {vendor.foodType && (
+                                  <span className="block text-[9px] text-amber-400 font-semibold uppercase mt-0.5">
+                                    {vendor.foodType}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3">
+                                <span className="block font-mono">{vendor.phone || 'N/A'}</span>
+                                <span className="block text-[10px] text-slate-400 truncate max-w-[150px]">{vendor.email || 'N/A'}</span>
+                              </td>
                               <td className="py-3">{vendor.borough}</td>
-                              <td className="py-3 font-semibold">{vendor.items.length} Products</td>
+                              <td className="py-3 font-semibold">{vendor.items?.length || 0} Products</td>
                               <td className="py-3">{vendor.rating} ★</td>
                               <td className="py-3">
                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase border border-white text-white">

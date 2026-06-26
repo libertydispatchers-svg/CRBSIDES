@@ -438,7 +438,7 @@ app.get("/api/orders", async (req, res) => {
 });
 
 app.post("/api/orders", async (req, res) => {
-  const { customerName, customerAddress, customerEmail, customerPhoneNumber, vendorName, vendorAddress, items, total } = req.body;
+  const { customerName, customerAddress, customerEmail, customerPhoneNumber, vendorName, vendorAddress, vendorCoordinates, items, total } = req.body;
 
   if (!customerName || !customerAddress || !customerEmail || !customerPhoneNumber) {
     return res.status(400).json({ error: "Missing customer details (name, address, email, phone)" });
@@ -507,7 +507,10 @@ app.post("/api/orders", async (req, res) => {
       let pickupLat = null;
       let pickupLng = null;
       
-      if (matchedVendor) {
+      if (vendorCoordinates && Array.isArray(vendorCoordinates) && vendorCoordinates.length === 2) {
+        pickupLat = Number(vendorCoordinates[0]);
+        pickupLng = Number(vendorCoordinates[1]);
+      } else if (matchedVendor) {
         finalVendorName = "Curbsides: " + matchedVendor.name;
         if (matchedVendor.location) finalVendorAddress = matchedVendor.location;
         if (matchedVendor.coordinates && matchedVendor.coordinates.length === 2) {
