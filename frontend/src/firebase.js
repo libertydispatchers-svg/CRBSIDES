@@ -117,14 +117,14 @@ const orderByMock = () => ({ type: 'orderBy' });
 // 3. Static Wrappers Exports (100% Compile-Safe)
 export const db = USE_LOCAL_MOCK ? dbMock : dbSdk;
 
-export const collection = (dbRef, name) => {
+export const collection = (dbRef, name, ...more) => {
   if (USE_LOCAL_MOCK) return collectionMock(dbRef, name);
-  return firestore.collection(dbRef, name);
+  return firestore.collection(dbRef, name, ...more);
 };
 
-export const doc = (dbRef, name, id) => {
+export const doc = (dbRef, name, id, ...more) => {
   if (USE_LOCAL_MOCK) return docMock(dbRef, name, id);
-  return firestore.doc(dbRef, name, id);
+  return firestore.doc(dbRef, name, id, ...more);
 };
 
 export const addDoc = (collRef, data) => {

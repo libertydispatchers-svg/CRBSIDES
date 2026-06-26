@@ -281,6 +281,17 @@ export default function App() {
         const vendorDoc = snap.docs.find(d => (d.data().role || '').toLowerCase() === 'vendor');
         const docSnap = vendorDoc || snap.docs[0];
         const data = docSnap.data();
+        
+        if ((data.role || '').toLowerCase() !== 'vendor') {
+          try {
+            const { doc, updateDoc } = await import('./firebase');
+            await updateDoc(doc(db, 'users', docSnap.id), { role: 'vendor' });
+            data.role = 'vendor';
+            console.log(`[Firestore] Successfully promoted user ${docSnap.id} role to 'vendor'`);
+          } catch (dbErr) {
+            console.error("Failed to promote role to vendor in Firestore:", dbErr);
+          }
+        }
         const vendorFromProfile = {
           id: docSnap.id,
           name: data.name || normalizedEmail.split('@')[0],
@@ -1899,23 +1910,39 @@ export default function App() {
     }
 
     navigator.geolocation.getCurrentPosition(
-      (position) => {
+      async (position) => {
         const lat = position.coords.latitude;
         const lon = position.coords.longitude;
         setGpsCoords({ lat, lon });
-        setGpsStatus('GPS Coordinates successfully sent to Supabase locations ledger!');
+        setGpsStatus('GPS Coordinates successfully published to live map and database!');
         
+        try {
+          const { db, doc, updateDoc } = await import('./firebase');
+          await updateDoc(doc(db, 'users', vendorUser.id), {
+            coordinates: [lat, lon],
+            isOpen: true
+          });
+          setVendorUser(prev => prev ? {
+            ...prev,
+            coordinates: [lat, lon],
+            isOpen: true
+          } : null);
+        } catch (dbErr) {
+          console.error("Failed to persist coordinates in Firestore:", dbErr);
+        }
+
         // Dynamic map updates inside mock UI
         setVendors(prev => prev.map(v => {
           if (v.id === vendorUser.id) {
             return {
               ...v,
-              coordinates: [lat, lon]
+              coordinates: [lat, lon],
+              isOpen: true
             };
           }
           return v;
         }));
-        console.log(`[Supabase] Updated vendor ${vendorUser.id} location to: [${lat}, ${lon}]`);
+        console.log(`[Firestore] Updated vendor ${vendorUser.id} location to: [${lat}, ${lon}]`);
       },
       (error) => {
         console.error("GPS Error:", error);
@@ -5325,24 +5352,44 @@ export default function App() {
                         setGpsStatus(`Geocoding and publishing: "${gpsAddressText}"...`);
                         
                         // Geocode simulation (derive coordinates in NYC area)
-                        setTimeout(() => {
+                        setTimeout(async () => {
                           const lat = 40.7128 + (Math.random() - 0.5) * 0.08;
                           const lon = -74.0060 + (Math.random() - 0.5) * 0.08;
                           setGpsCoords({ lat, lon });
                           setGpsStatus(`Address successfully geocoded and published to live map!`);
                           
+                          try {
+                            const { db, doc, updateDoc } = await import('./firebase');
+                            await updateDoc(doc(db, 'users', vendorUser.id), {
+                              coordinates: [lat, lon],
+                              location: gpsAddressText.trim(),
+                              borough: gpsAddressText.trim(),
+                              isOpen: true
+                            });
+                            setVendorUser(prev => prev ? {
+                              ...prev,
+                              coordinates: [lat, lon],
+                              location: gpsAddressText.trim(),
+                              borough: gpsAddressText.trim(),
+                              isOpen: true
+                            } : null);
+                          } catch (dbErr) {
+                            console.error("Failed to persist address location in Firestore:", dbErr);
+                          }
+
                           // Update coordinates in the map/vendors list dynamically
                           setVendors(prev => prev.map(v => {
                             if (v.id === vendorUser.id) {
                               return {
                                 ...v,
                                 borough: gpsAddressText.trim(),
-                                coordinates: [lat, lon]
+                                coordinates: [lat, lon],
+                                isOpen: true
                               };
                             }
                             return v;
                           }));
-                          console.log(`[Supabase Address Geocode] Updated vendor ${vendorUser.id} coordinates to: [${lat}, ${lon}] at "${gpsAddressText}"`);
+                          console.log(`[Firestore Address Geocode] Updated vendor ${vendorUser.id} coordinates to: [${lat}, ${lon}] at "${gpsAddressText}"`);
                         }, 1000);
                       }} className="space-y-3">
                         <div>
