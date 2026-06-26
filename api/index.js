@@ -123,6 +123,23 @@ async function updateDocument(collectionName, docId, data) {
   }
 }
 
+async function deleteDocument(collectionName, docId) {
+  try {
+    await firestore.collection(collectionName).doc(docId).delete();
+    if (db[collectionName]) {
+      db[collectionName] = db[collectionName].filter(item => item.id !== docId);
+    }
+    return true;
+  } catch (err) {
+    console.error(`[Database] Error deleting document ${collectionName}/${docId}:`, err.message);
+    if (db[collectionName]) {
+      db[collectionName] = db[collectionName].filter(item => item.id !== docId);
+      return true;
+    }
+    return false;
+  }
+}
+
 // Seed some initial orders for high-fidelity demonstration
 db.orders = [
   {
@@ -987,13 +1004,39 @@ app.delete("/api/users/:id", async (req, res) => {
 // DELETE vendor application endpoint
 app.delete("/api/vendor-applications/:id", async (req, res) => {
   try {
-    const appDoc = await getDocument("vendor-applications", req.params.id);
-    if (!appDoc) return res.status(404).json({ error: "Application not found" });
-    await firestore.collection("vendor-applications").doc(req.params.id).delete();
-    res.json({ success: true, message: `Application for ${appDoc.name} deleted` });
+    const appId = req.params.id;
+    // Fetch the application to get email
+    const application = await getDocument("vendor-applications", appId);
+    if (!application) {
+      return res.status(404).json({ error: "Application not found" });
+    }
+    // Delete the application document
+    await deleteDocument("vendor-applications", appId);
+
+    // If the application has an email, attempt to delete associated user data
+    if (application.email) {
+      const email = application.email.toLowerCase().trim();
+      const deleteOps = [];
+      // Delete Firestore user document(s) matching email
+      const userSnap = await firestore.collection("users").where("email", "==", email).get();
+      userSnap.forEach(doc => {
+        deleteOps.push(deleteDocument("users", doc.id));
+      });
+      // Delete Firebase Auth user if exists
+      try {
+        const admin = require('firebase-admin');
+        const authUser = await admin.auth().getUserByEmail(email);
+        deleteOps.push(admin.auth().deleteUser(authUser.uid));
+      } catch (authErr) {
+        // If user not found in Auth, ignore
+        console.warn(`Auth user not found for ${email}:`, authErr.message);
+      }
+      await Promise.all(deleteOps);
+    }
+    res.json({ success: true });
   } catch (err) {
-    console.error("Delete application error:", err);
-    res.status(500).json({ error: err.message });
+    console.error("Failed to delete application:", err);
+    res.status(500).json({ error: "Failed to delete application" });
   }
 });
 

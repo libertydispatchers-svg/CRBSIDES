@@ -160,6 +160,7 @@ export default function App() {
   const [profileTags, setProfileTags] = useState('');
   const [profileIsOpen, setProfileIsOpen] = useState(true);
   const [profileLogo, setProfileLogo] = useState('');
+  const [profileHours, setProfileHours] = useState('');
 
   // Customer Reviews Form State
   const [vendorModalTab, setVendorModalTab] = useState('menu'); // 'menu' | 'reviews'
@@ -355,6 +356,7 @@ export default function App() {
       setProfileTags((vendorUser.tags || []).join(', '));
       setProfileIsOpen(vendorUser.isOpen);
       setProfileLogo(vendorUser.logo || '');
+      setProfileHours(vendorUser.hours || '');
     }
   }, [vendorActiveSubTab, vendorUser]);
 
@@ -429,6 +431,8 @@ export default function App() {
             setUserSession(null);
             return;
           }
+          
+          let isFirstLoad = true;
           userUnsubscribe = onSnapshot(doc(db, 'users', firebaseUser.uid), async (docSnap) => {
             let profile = docSnap.exists() ? { id: docSnap.id, ...docSnap.data() } : null;
             if (!profile && firebaseUser.email) {
@@ -448,7 +452,19 @@ export default function App() {
             if (!profile) return;
             setUserSession(profile);
             
-            if (profile.role === 'vendor') {
+            // Override role for admin email
+            if (profile.email === 'libertydispatchers@gmail.com') {
+              profile.role = 'admin';
+            }
+
+            if (profile.role === 'admin') {
+              setCustomerUser(profile);
+              setIsStaffAuthenticated(true);
+              setIsAdminAuthenticated(true);
+              if (isFirstLoad) {
+                setActiveTab('admin');
+              }
+            } else if (profile.role === 'vendor') {
               setCustomerUser(null);
               setDriverUser(null);
               await loadVendorProfile({
@@ -466,21 +482,39 @@ export default function App() {
                 logo: profile.logo || profile.photoURL || null
               });
               setSelectedPortalVendorId(profile.id);
+              if (isFirstLoad) {
+                setVendorActiveSubTab('menu');
+                setActiveTab('vendor-portal');
+              }
             } else if (profile.role === 'driver') {
               setVendorUser(null);
               setCustomerUser(null);
               setDriverUser(profile);
+              if (isFirstLoad) {
+                setDriverActiveSubTab('deliveries');
+                setActiveTab('driver-portal');
+              }
             } else {
               setVendorUser(null);
               setDriverUser(null);
               setCustomerUser(profile);
               setCustomerCards(profile.cards || []);
-              // Restore admin auth state if this is the admin email
-              if (profile.email === 'libertydispatchers@gmail.com') {
-                setIsStaffAuthenticated(true);
-                setIsAdminAuthenticated(true);
+              if (isFirstLoad) {
+                requestViewerLocation();
+                setActiveTab('map');
+                // Show profile completion for phone-only users
+                if (!profile.name || !profile.email || isPhoneAliasEmail(profile.email)) {
+                  setProfileCompletion({
+                    open: true,
+                    name: profile.name || '',
+                    email: isPhoneAliasEmail(profile.email) ? '' : (profile.email || ''),
+                    phone: profile.phone || firebaseUser.phoneNumber || '',
+                    userId: profile.id || firebaseUser.uid
+                  });
+                }
               }
             }
+            isFirstLoad = false;
           });
         });
       } catch (err) {
@@ -1672,7 +1706,7 @@ export default function App() {
       if (!res.ok) {
         throw new Error(payload?.error || 'Approval request failed.');
       }
-
+      
       const approvedVendor = payload?.vendor;
       if (approvedVendor) {
         setVendors(prev => {
@@ -2304,7 +2338,7 @@ export default function App() {
           );
           
           if (foundVendor) {
-            setVendorUser(foundVendor);
+            await loadVendorProfile(foundVendor);
             setSelectedPortalVendorId(foundVendor.id);
           } else {
             const fallbackVendor = {
@@ -2691,7 +2725,8 @@ export default function App() {
         borough: profileBorough.includes(', NYC') ? profileBorough : profileBorough + ', NYC',
         tags: profileTags.split(',').map(t => t.trim()).filter(Boolean),
         isOpen: profileIsOpen,
-        logo: profileLogo
+        logo: profileLogo,
+        hours: profileHours
       };
       
       await updateDoc(doc(db, 'users', vendorUser.id), updatedData);
@@ -4788,10 +4823,28 @@ export default function App() {
                 <div className="flex justify-between items-center border-b border-white/20 pb-4 flex-wrap gap-4">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full ${vendorUser.isOpen ? 'bg-emerald-500 animate-pulse' : 'bg-rose-500'}`}></span>
-                      <span className="text-[9px] font-mono bg-white/10 px-2 py-0.5 rounded border border-white/10 text-slate-300 uppercase font-bold tracking-wider">
-                        {vendorUser.isOpen ? 'Active & Open' : 'Closed'}
-                      </span>
+                      <button 
+                        onClick={async () => {
+                          try {
+                            const { db, doc, updateDoc } = await import('./firebase');
+                            await updateDoc(doc(db, 'users', vendorUser.id), { isOpen: !vendorUser.isOpen });
+                            setVendorUser({ ...vendorUser, isOpen: !vendorUser.isOpen });
+                            setVendors(prev => prev.map(v => v.id === vendorUser.id ? { ...v, isOpen: !vendorUser.isOpen } : v));
+                          } catch (err) {
+                            console.error("Failed to toggle status:", err);
+                          }
+                        }}
+                        className={`flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer border ${
+                          vendorUser.isOpen 
+                            ? 'bg-emerald-950/40 border-emerald-500/50 hover:bg-emerald-900/60' 
+                            : 'bg-rose-950/40 border-rose-500/50 hover:bg-rose-900/60'
+                        } transition-colors`}
+                      >
+                        <span className={`w-2 h-2 rounded-full ${vendorUser.isOpen ? 'bg-emerald-500 animate-pulse shadow-[0_0_8px_rgba(16,185,129,0.8)]' : 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]'}`}></span>
+                        <span className="text-[10px] font-mono text-white uppercase font-bold tracking-wider">
+                          {vendorUser.isOpen ? 'Active & Open' : 'Offline'}
+                        </span>
+                      </button>
                       <span className="text-[9px] text-slate-500 font-mono">
                         {vendorUser.email}
                       </span>
@@ -5391,6 +5444,17 @@ export default function App() {
                             onChange={(e) => setProfileTags(e.target.value)}
                             className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
                             placeholder="e.g. Mexican, Tacos, BBQ"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Hours</label>
+                          <input
+                            type="text"
+                            value={profileHours}
+                            onChange={(e) => setProfileHours(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                            placeholder="e.g. Mon-Sat 11am-10pm, Sun Closed"
                           />
                         </div>
 
