@@ -6636,14 +6636,12 @@ export default function App() {
                                 >
                                   {driver.status === 'approved' ? 'View Details' : 'Review Application'}
                                 </button>
-                                {driver.status === 'approved' && (
-                                  <button
-                                    onClick={() => handleDeleteDriver(driver.id, driver.fullName)}
-                                    className="px-2 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
-                                  >
-                                    Delete
-                                  </button>
-                                )}
+                                <button
+                                  onClick={() => handleDeleteDriver(driver.id, driver.fullName)}
+                                  className="px-2 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
+                                >
+                                  Delete
+                                </button>
                               </td>
                             </tr>
                           ))}
