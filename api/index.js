@@ -498,7 +498,10 @@ app.post("/api/orders", async (req, res) => {
       const usersList = await getCollection("users");
       const matchedVendor = usersList.find(u => 
         u.role === 'vendor' && 
-        ((vendorName && u.name && u.name.toLowerCase() === vendorName.toLowerCase()) ||
+        ((vendorName && (
+          (u.name && u.name.toLowerCase() === vendorName.toLowerCase()) ||
+          (u.displayName && u.displayName.toLowerCase() === vendorName.toLowerCase())
+         )) ||
          (vendorAddress && u.location && vendorAddress.toLowerCase().includes(u.location.toLowerCase())))
       );
       
@@ -507,11 +510,15 @@ app.post("/api/orders", async (req, res) => {
       let pickupLat = null;
       let pickupLng = null;
       
-      if (vendorCoordinates && Array.isArray(vendorCoordinates) && vendorCoordinates.length === 2) {
+      if (vendorCoordinates && Array.isArray(vendorCoordinates) && vendorCoordinates.length === 2 && vendorCoordinates[0] != null && vendorCoordinates[1] != null) {
         pickupLat = Number(vendorCoordinates[0]);
         pickupLng = Number(vendorCoordinates[1]);
+        if (matchedVendor) {
+          finalVendorName = "Curbsides: " + (matchedVendor.displayName || matchedVendor.name);
+          if (matchedVendor.location) finalVendorAddress = matchedVendor.location;
+        }
       } else if (matchedVendor) {
-        finalVendorName = "Curbsides: " + matchedVendor.name;
+        finalVendorName = "Curbsides: " + (matchedVendor.displayName || matchedVendor.name);
         if (matchedVendor.location) finalVendorAddress = matchedVendor.location;
         if (matchedVendor.coordinates && matchedVendor.coordinates.length === 2) {
           pickupLat = matchedVendor.coordinates[0];
@@ -1354,7 +1361,10 @@ app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res)
         const usersList = await getCollection("users");
         const matchedVendor = usersList.find(u => 
           u.role === 'vendor' && 
-          ((vendorName && u.name && u.name.toLowerCase() === vendorName.toLowerCase()) ||
+          ((vendorName && (
+            (u.name && u.name.toLowerCase() === vendorName.toLowerCase()) ||
+            (u.displayName && u.displayName.toLowerCase() === vendorName.toLowerCase())
+           )) ||
            (vendorAddress && u.location && vendorAddress.toLowerCase().includes(u.location.toLowerCase())))
         );
         
@@ -1364,7 +1374,7 @@ app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res)
         let pickupLng = null;
         
         if (matchedVendor) {
-          finalVendorName = "Curbsides: " + matchedVendor.name;
+          finalVendorName = "Curbsides: " + (matchedVendor.displayName || matchedVendor.name);
           if (matchedVendor.location) finalVendorAddress = matchedVendor.location;
           if (matchedVendor.coordinates && matchedVendor.coordinates.length === 2) {
             pickupLat = matchedVendor.coordinates[0];

@@ -156,6 +156,7 @@ export default function App() {
 
   // Vendor Profile Edit State
   const [profileName, setProfileName] = useState('');
+  const [profileDisplayName, setProfileDisplayName] = useState('');
   const [profileBorough, setProfileBorough] = useState('Manhattan');
   const [profileTags, setProfileTags] = useState('');
   const [profileIsOpen, setProfileIsOpen] = useState(true);
@@ -295,6 +296,7 @@ export default function App() {
         const vendorFromProfile = {
           id: docSnap.id,
           name: data.name || normalizedEmail.split('@')[0],
+          displayName: data.displayName || '',
           email: data.email || normalizedEmail,
           borough: data.borough || 'Manhattan, NYC',
           location: data.location || '',
@@ -363,6 +365,7 @@ export default function App() {
   useEffect(() => {
     if (vendorUser) {
       setProfileName(vendorUser.name);
+      setProfileDisplayName(vendorUser.displayName || '');
       setProfileBorough(vendorUser.borough.replace(', NYC', '').trim());
       setProfileTags((vendorUser.tags || []).join(', '));
       setProfileIsOpen(vendorUser.isOpen);
@@ -481,6 +484,7 @@ export default function App() {
               await loadVendorProfile({
                 id: profile.id,
                 name: profile.name || firebaseUser.displayName || 'Vendor',
+                displayName: profile.displayName || '',
                 email: profile.email || firebaseUser.email || '',
                 borough: profile.borough || 'Manhattan, NYC',
                 location: profile.location || '',
@@ -613,6 +617,7 @@ export default function App() {
               return {
                 id: docSnap.id,
                 name: data.name || 'Unnamed Vendor',
+                displayName: data.displayName || '',
                 email: data.email || `${(data.name || '').toLowerCase().replace(/[^a-z0-9]/g, '')}@example.com`,
                 borough: data.borough || 'NYC',
                 location: data.location || '',
@@ -1039,7 +1044,7 @@ export default function App() {
               .addTo(mapInstanceRef.current)
               .bindPopup(`
                 <div class="bg-black text-white p-2 border-2 border-white rounded-lg font-sans">
-                  <h4 class="font-bold text-sm text-white border-b border-white/20 pb-1 mb-1 uppercase">${v.name}</h4>
+                  <h4 class="font-bold text-sm text-white border-b border-white/20 pb-1 mb-1 uppercase">${v.displayName || v.name}</h4>
                   <p class="text-xs text-slate-400 font-semibold mb-2">${v.borough}</p>
                   ${estimatedFee !== null ? `<p class="text-[10px] text-emerald-300 font-bold mb-2">Est. Delivery: $${estimatedFee.toFixed(2)} (${distanceMiles.toFixed(1)} mi)</p>` : `<p class="text-[10px] text-slate-500 mb-2">Enable location to see delivery estimate</p>`}
                   <button onclick="window.selectVendorFromMap('${v.id}')" class="w-full text-center px-2 py-1 bg-white text-black font-bold text-[10px] rounded uppercase hover:bg-black hover:text-white border border-white transition-all cursor-pointer">
@@ -1208,6 +1213,7 @@ export default function App() {
   // Filter vendors
   const filteredVendors = vendors.filter(v => {
     const matchesSearch = (v.name || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
+      (v.displayName || '').toLowerCase().includes(searchQuery.toLowerCase()) || 
       v.items.some(item => (item.name || item.title || '').toLowerCase().includes(searchQuery.toLowerCase()));
     
     const matchesBorough = selectedBorough === 'All' || 
@@ -1393,6 +1399,7 @@ export default function App() {
             const sessionVendor = {
               id: profileData.id,
               name: profileData.name,
+              displayName: profileData.displayName || '',
               email: profileData.email,
               borough: profileData.borough || 'Manhattan, NYC',
               isOpen: profileData.isOpen ?? false,
@@ -1443,7 +1450,7 @@ export default function App() {
 
     if (cart.length === 0) return;
 
-    const matchedV = vendors.find(v => v.name === cart[0].vendorName);
+    const matchedV = vendors.find(v => v.name === cart[0].vendorName || v.displayName === cart[0].vendorName);
     const vendorAddress = matchedV ? (matchedV.location || matchedV.borough) : "Katz's Delicatessen, 205 E Houston St, New York, NY 10002";
 
     const orderPayload = {
@@ -2110,6 +2117,7 @@ export default function App() {
         const sessionVendor = {
           id: userData.id,
           name: userData.name || firebaseUser.displayName || vendorLoginEmail.split('@')[0],
+          displayName: userData.displayName || '',
           email: vendorLoginEmail.trim(),
           borough: userData.borough || 'Manhattan, NYC',
           isOpen: userData.isOpen ?? true,
@@ -2348,6 +2356,7 @@ export default function App() {
           const vendorFromUser = {
             id: user.id || 'vendor-' + Date.now(),
             name: user.name,
+            displayName: user.displayName || '',
             email: user.email,
             phone: user.phone || '',
             borough: user.borough || 'Manhattan',
@@ -2803,6 +2812,7 @@ export default function App() {
       const { db, doc, updateDoc } = await import('./firebase');
       const updatedData = {
         name: profileName,
+        displayName: profileDisplayName,
         borough: profileBorough.includes(', NYC') ? profileBorough : profileBorough + ', NYC',
         tags: profileTags.split(',').map(t => t.trim()).filter(Boolean),
         isOpen: profileIsOpen,
@@ -2974,6 +2984,7 @@ export default function App() {
                           loadVendorProfile({
                             id: data.user.associatedId || 'vendor-new',
                             name: data.user.name,
+                            displayName: data.user.displayName || '',
                             email: verificationPendingEmail,
                             borough: 'Manhattan, NYC',
                             isOpen: true,
@@ -5418,6 +5429,18 @@ export default function App() {
                         </div>
 
                         <div>
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Display Name (Visible to Customers)</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Will's Street Tacos"
+                            value={profileDisplayName}
+                            onChange={(e) => setProfileDisplayName(e.target.value)}
+                            className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
+                          />
+                        </div>
+
+                        <div>
                           <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Name</label>
                           <input
                             type="text"
@@ -7214,6 +7237,11 @@ export default function App() {
                             <tr key={vendor.id} className="hover:bg-zinc-950 transition-colors">
                               <td className="py-3 font-bold text-white uppercase">
                                 {vendor.name}
+                                {vendor.displayName && (
+                                  <span className="block text-[10px] text-emerald-400 font-semibold lowercase tracking-wide mt-0.5">
+                                    Display Name: {vendor.displayName}
+                                  </span>
+                                )}
                                 {vendor.foodType && (
                                   <span className="block text-[9px] text-amber-400 font-semibold uppercase mt-0.5">
                                     {vendor.foodType}
@@ -7927,16 +7955,16 @@ export default function App() {
                       <div className="flex items-center gap-4 flex-1 min-w-0">
                         {vendor.logo ? (
                           <div className="w-12 h-12 rounded-full border-2 border-white overflow-hidden bg-black flex-shrink-0">
-                            <img src={vendor.logo} alt={vendor.name} className="w-full h-full object-cover" />
+                            <img src={vendor.logo} alt={vendor.displayName || vendor.name} className="w-full h-full object-cover" />
                           </div>
                         ) : (
                           <div className="w-12 h-12 rounded-full border-2 border-white flex items-center justify-center bg-black text-white font-black text-lg flex-shrink-0">
-                            {vendor.name.charAt(0).toUpperCase()}
+                            {(vendor.displayName || vendor.name).charAt(0).toUpperCase()}
                           </div>
                         )}
                         <div className="space-y-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <h3 className="text-lg sm:text-xl font-bold uppercase text-white font-heading truncate">{vendor.name}</h3>
+                            <h3 className="text-lg sm:text-xl font-bold uppercase text-white font-heading truncate">{vendor.displayName || vendor.name}</h3>
                             {vendor.isOpen && (
                               <span className="w-1.5 h-1.5 rounded-full bg-white animate-ping flex-shrink-0"></span>
                             )}
@@ -8071,18 +8099,18 @@ export default function App() {
               <div className="flex items-center gap-4">
                 {selectedVendor.logo ? (
                   <div className="w-16 h-16 rounded-full border-2 border-white overflow-hidden bg-black flex-shrink-0">
-                    <img src={selectedVendor.logo} alt={selectedVendor.name} className="w-full h-full object-cover" />
+                    <img src={selectedVendor.logo} alt={selectedVendor.displayName || selectedVendor.name} className="w-full h-full object-cover" />
                   </div>
                 ) : (
                   <div className="w-16 h-16 rounded-full border-2 border-white flex items-center justify-center bg-black text-white font-black text-2xl flex-shrink-0">
-                    {selectedVendor.name.charAt(0).toUpperCase()}
+                    {(selectedVendor.displayName || selectedVendor.name).charAt(0).toUpperCase()}
                   </div>
                 )}
                 <div>
                   <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded">
                     Menu
                   </span>
-                  <h2 className="text-2xl font-bold uppercase text-white font-heading mt-1">{selectedVendor.name}</h2>
+                  <h2 className="text-2xl font-bold uppercase text-white font-heading mt-1">{selectedVendor.displayName || selectedVendor.name}</h2>
                   <p className="text-xs text-slate-400 mt-0.5">{selectedVendor.borough} &bull; Rating: {selectedVendor.rating ? selectedVendor.rating.toFixed(1) : '5.0'} ★ ({selectedVendor.reviews ? selectedVendor.reviews.length : 0} reviews)</p>
                 </div>
               </div>
@@ -8148,7 +8176,7 @@ export default function App() {
                             </button>
                             <span className="font-bold text-xs px-2 text-white">{cartQty}</span>
                             <button 
-                              onClick={() => addToCart(item, selectedVendor.name)}
+                              onClick={() => addToCart(item, selectedVendor.displayName || selectedVendor.name)}
                               className="p-1 hover:bg-white hover:text-black rounded transition-all cursor-pointer"
                             >
                               <Plus className="w-3.5 h-3.5" />
@@ -8156,7 +8184,7 @@ export default function App() {
                           </div>
                         ) : (
                           <button
-                            onClick={() => addToCart(item, selectedVendor.name)}
+                            onClick={() => addToCart(item, selectedVendor.displayName || selectedVendor.name)}
                             className="px-3 py-1.5 border-2 border-white rounded-lg text-xs font-bold uppercase bg-white text-black hover:bg-black hover:text-white transition-all cursor-pointer"
                           >
                             Add
