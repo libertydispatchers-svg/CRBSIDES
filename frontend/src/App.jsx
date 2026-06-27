@@ -1020,6 +1020,15 @@ export default function App() {
       // Save admin access token
       localStorage.setItem('curbsides_shopify_admin_token', adminToken);
       
+      // Save to Firestore so backend can use it for vendor phones
+      import('./firebase').then(({ db, doc, setDoc }) => {
+        setDoc(doc(db, 'config', 'shopify'), {
+          shop: shop,
+          admin_token: adminToken,
+          storefront_token: sfToken
+        }, { merge: true }).catch(err => console.error("Firestore shopify config save failed:", err));
+      });
+      
       // Sync local states
       setShopDomain(shop);
       setStorefrontToken(sfToken);
@@ -1675,10 +1684,22 @@ export default function App() {
   };
 
   // Save Config Settings
-  const handleSaveConfig = (e) => {
+  const handleSaveConfig = async (e) => {
     e.preventDefault();
     saveShopifyConfig(shopDomain, storefrontToken);
     localStorage.setItem('curbsides_shopify_admin_token', adminTokenInput);
+    
+    try {
+      const { db, doc, setDoc } = await import('./firebase');
+      await setDoc(doc(db, 'config', 'shopify'), {
+        shop: shopDomain,
+        admin_token: adminTokenInput,
+        storefront_token: storefrontToken
+      }, { merge: true });
+    } catch(err) {
+      console.error("Failed to save config to firestore", err);
+    }
+
     setConfigSuccess(true);
     setTimeout(() => {
       setConfigSuccess(false);
