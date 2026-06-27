@@ -1266,35 +1266,62 @@ app.post("/api/shopify/create-product", async (req, res) => {
     
     let collectionData = null;
     try {
-      console.log(`[Shopify API] Creating Smart Collection for vendor "${vendorName}"...`);
-      const collectionPayload = {
-        smart_collection: {
-          title: vendorName,
-          rules: [
-            {
-              column: "vendor",
-              relation: "equals",
-              condition: vendorName
-            }
-          ]
-        }
-      };
-
-      const collectionRes = await axios.post(
-        `https://${sanitizedShop}/admin/api/2024-01/smart_collections.json`,
-        collectionPayload,
-        {
-          headers: {
-            "X-Shopify-Access-Token": finalToken,
-            "Content-Type": "application/json"
-          }
-        }
+      console.log(`[Shopify API] Checking/Creating Custom Collection for vendor "${vendorName}"...`);
+      
+      // 1. Check if a Custom Collection already exists for this vendor
+      const searchRes = await axios.get(
+        `https://${sanitizedShop}/admin/api/2024-01/custom_collections.json?title=${encodeURIComponent(vendorName)}`,
+        { headers: { "X-Shopify-Access-Token": finalToken } }
       );
       
-      console.log(`[Shopify API] Smart Collection created successfully. ID: ${collectionRes.data.smart_collection.id}`);
-      collectionData = collectionRes.data.smart_collection;
+      let collectionId = null;
+      if (searchRes.data.custom_collections && searchRes.data.custom_collections.length > 0) {
+        collectionId = searchRes.data.custom_collections[0].id;
+        collectionData = searchRes.data.custom_collections[0];
+        console.log(`[Shopify API] Found existing Custom Collection ID: ${collectionId}`);
+      } else {
+        // 2. If not, create a new Custom Collection
+        const collectionPayload = {
+          custom_collection: { title: vendorName }
+        };
+        const createRes = await axios.post(
+          `https://${sanitizedShop}/admin/api/2024-01/custom_collections.json`,
+          collectionPayload,
+          {
+            headers: {
+              "X-Shopify-Access-Token": finalToken,
+              "Content-Type": "application/json"
+            }
+          }
+        );
+        collectionId = createRes.data.custom_collection.id;
+        collectionData = createRes.data.custom_collection;
+        console.log(`[Shopify API] Custom Collection created successfully. ID: ${collectionId}`);
+      }
+
+      // 3. Explicitly link the product to the collection using a Collect
+      if (collectionId) {
+        console.log(`[Shopify API] Creating Collect to link product ${response.data.product.id} to collection ${collectionId}...`);
+        await axios.post(
+          `https://${sanitizedShop}/admin/api/2024-01/collects.json`,
+          {
+            collect: {
+              product_id: response.data.product.id,
+              collection_id: collectionId
+            }
+          },
+          {
+            headers: {
+              "X-Shopify-Access-Token": finalToken,
+              "Content-Type": "application/json"
+            }
+          }
+        );
+        console.log(`[Shopify API] Product successfully linked to Custom Collection.`);
+      }
+
     } catch (colErr) {
-      console.warn("[Shopify API] Smart Collection creation failed (may already exist):", colErr.response?.data || colErr.message);
+      console.warn("[Shopify API] Collection or Collect creation failed:", colErr.response?.data || colErr.message);
     }
 
     res.status(201).json({ success: true, product: response.data.product, collection: collectionData });

@@ -47,6 +47,40 @@ import {
   ShieldCheck
 } from 'lucide-react';
 
+// Helper function to compress images before uploading
+const compressImage = (file, maxWidth = 800, maxHeight = 800, quality = 0.7) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target.result;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        
+        if (width > maxWidth || height > maxHeight) {
+          if (width > height) {
+            height = Math.round((height * maxWidth) / width);
+            width = maxWidth;
+          } else {
+            width = Math.round((width * maxHeight) / height);
+            height = maxHeight;
+          }
+        }
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+    };
+  });
+};
+
 export default function App() {
   const [vendors, setVendors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4170,6 +4204,32 @@ export default function App() {
                       <div className="border border-white/20 p-6 rounded-xl bg-zinc-950/40 space-y-4">
                         <h3 className="text-sm font-bold uppercase tracking-wider text-white">Update Profile</h3>
                         <div className="space-y-3">
+                          <div className="flex flex-col items-center mb-6 pt-2">
+                            <div className="relative w-24 h-24 rounded-full border-2 border-white/20 overflow-hidden bg-black flex items-center justify-center group hover:border-white transition-colors">
+                              {customerUser.logo ? (
+                                <img src={customerUser.logo} alt="Profile" className="w-full h-full object-cover" />
+                              ) : (
+                                <User className="w-10 h-10 text-white/30 group-hover:text-white/70 transition-colors" />
+                              )}
+                              <input
+                                type="file"
+                                accept="image/*"
+                                onChange={(e) => {
+                                  const file = e.target.files[0];
+                                  if (file) {
+                                    compressImage(file).then(compressedBase64 => {
+                                      setCustomerUser({ ...customerUser, logo: compressedBase64 });
+                                    });
+                                  }
+                                }}
+                                className="absolute inset-0 opacity-0 cursor-pointer z-10"
+                              />
+                              <div className="absolute inset-0 bg-black/50 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                <Upload className="w-5 h-5 text-white mb-1" />
+                              </div>
+                            </div>
+                            <span className="text-[9px] text-slate-500 mt-3 font-bold uppercase tracking-widest">Update Photo</span>
+                          </div>
                           <div>
                             <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Full Name</label>
                             <input
@@ -5235,9 +5295,9 @@ export default function App() {
                                   onChange={(e) => {
                                     const file = e.target.files[0];
                                     if (file) {
-                                      const reader = new FileReader();
-                                      reader.onloadend = () => setNewMenuImage(reader.result);
-                                      reader.readAsDataURL(file);
+                                      compressImage(file).then(compressedBase64 => {
+                                        setNewMenuImage(compressedBase64);
+                                      });
                                     }
                                   }}
                                   className="absolute inset-0 opacity-0 cursor-pointer"
@@ -5324,9 +5384,9 @@ export default function App() {
                                   onChange={(e) => {
                                     const file = e.target.files[0];
                                     if (file) {
-                                      const reader = new FileReader();
-                                      reader.onloadend = () => setEditMenuImage(reader.result);
-                                      reader.readAsDataURL(file);
+                                      compressImage(file).then(compressedBase64 => {
+                                        setEditMenuImage(compressedBase64);
+                                      });
                                     }
                                   }}
                                   className="absolute inset-0 opacity-0 cursor-pointer"
@@ -5544,9 +5604,9 @@ export default function App() {
                               onChange={(e) => {
                                 const file = e.target.files[0];
                                 if (file) {
-                                  const reader = new FileReader();
-                                  reader.onloadend = () => setProfileLogo(reader.result);
-                                  reader.readAsDataURL(file);
+                                  compressImage(file).then(compressedBase64 => {
+                                    setProfileLogo(compressedBase64);
+                                  });
                                 }
                               }}
                               className="absolute inset-0 opacity-0 cursor-pointer"
