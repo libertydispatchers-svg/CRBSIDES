@@ -116,7 +116,6 @@ export default function App() {
   const [searchedOrder, setSearchedOrder] = useState(null);
   const [trackingError, setTrackingError] = useState('');
   const [trackingModalOrder, setTrackingModalOrder] = useState(null);
-  const [trackingCustomerCoords, setTrackingCustomerCoords] = useState(null);
 
   // Vendor Onboarding Signup Form State
   const [vendorName, setVendorName] = useState('');
@@ -1244,22 +1243,6 @@ export default function App() {
     };
   }, [vendors]);
 
-  // Geocode customer address for tracking map
-  useEffect(() => {
-    if (searchedOrder && searchedOrder.customerAddress && activeTab === 'track') {
-      fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(searchedOrder.customerAddress)}&limit=1`)
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.length > 0) {
-            setTrackingCustomerCoords([parseFloat(data[0].lat), parseFloat(data[0].lon)]);
-          }
-        })
-        .catch(console.error);
-    } else {
-      setTrackingCustomerCoords(null);
-    }
-  }, [searchedOrder, activeTab]);
-
   // Leaflet Order Tracking Map drawing and updating hook
   useEffect(() => {
     if (activeTab === 'track' && searchedOrder) {
@@ -1298,26 +1281,16 @@ export default function App() {
           }
           bounds.push(vendorCoords);
 
-          // Approximate the location for privacy (e.g. 500 meter radius circle)
-          const vCircle = window.L.circle(vendorCoords, {
-            color: '#f59e0b',
-            fillColor: '#f59e0b',
-            fillOpacity: 0.2,
-            radius: 300 // 300 meters approximate radius
-          }).addTo(trackingMapInstanceRef.current)
-            .bindPopup(`<div class="bg-black text-white p-2 border-2 border-amber-500 rounded-lg font-sans text-xs uppercase font-bold">Approximate Area: ${searchedOrder.vendor || 'Vendor'}</div>`, { closeButton: false });
-          trackingMarkersRef.current.push(vCircle);
-
-          // Add a custom center dot for the vendor circle to give it a center point for bounding
-          const vendorCenterIcon = window.L.divIcon({
+          const vendorIcon = window.L.divIcon({
             className: 'custom-vendor-icon',
-            html: `<div class="w-4 h-4 rounded-full border border-amber-500/50 bg-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.5)]"></div>`,
-            iconSize: [16, 16],
-            iconAnchor: [8, 8]
+            html: `<div class="w-8 h-8 rounded-full border-2 border-white bg-black flex items-center justify-center font-bold text-white text-xs shadow-lg">C</div>`,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
           });
-          const vMarker = window.L.marker(vendorCoords, { icon: vendorCenterIcon })
+
+          const vMarker = window.L.marker(vendorCoords, { icon: vendorIcon })
             .addTo(trackingMapInstanceRef.current)
-            .bindPopup(`<div class="bg-black text-white p-2 border-2 border-amber-500 rounded-lg font-sans text-xs uppercase font-bold">Approximate Area: ${searchedOrder.vendor || 'Vendor'}</div>`, { closeButton: false });
+            .bindPopup(`<div class="bg-black text-white p-2 border-2 border-white rounded-lg font-sans text-xs uppercase font-bold">${searchedOrder.vendor || 'Vendor'}</div>`, { closeButton: false });
           trackingMarkersRef.current.push(vMarker);
 
           // 2. Driver Marker
@@ -1344,8 +1317,8 @@ export default function App() {
             }
           }
 
-          // 3. Customer Marker (Actual location geocoded)
-          let customerCoords = trackingCustomerCoords || [vendorCoords[0] + 0.015, vendorCoords[1] - 0.015];
+          // 3. Customer Marker (mock customer location near vendor for demo)
+          let customerCoords = [vendorCoords[0] + 0.015, vendorCoords[1] - 0.015];
           bounds.push(customerCoords);
 
           const customerIcon = window.L.divIcon({
@@ -2950,13 +2923,13 @@ export default function App() {
     if (!editingItem || !editMenuName || !editMenuPrice || !vendorUser) return;
 
     try {
-      const { db, doc, updateDoc } = await import('./firebase');
-      await updateDoc(doc(db, 'users', vendorUser.id, 'menu', editingItem.id), {
+      const { db, doc, setDoc } = await import('./firebase');
+      await setDoc(doc(db, 'users', vendorUser.id, 'menu', editingItem.id), {
         name: editMenuName,
         description: editMenuDesc,
         price: parseFloat(editMenuPrice),
         image: editMenuImage || editingItem.image
-      });
+      }, { merge: true });
       
       const updatedItems = (vendorUser.items || []).map(item => {
         if (item.id === editingItem.id) {
@@ -3007,18 +2980,25 @@ export default function App() {
     if (!vendorUser) return;
 
     try {
-      const { db, doc, updateDoc } = await import('./firebase');
+      const { db, doc, setDoc } = await import('./firebase');
       const updatedData = {
-        name: profileName,
-        displayName: profileDisplayName,
-        borough: profileBorough.includes(', NYC') ? profileBorough : profileBorough + ', NYC',
-        tags: profileTags.split(',').map(t => t.trim()).filter(Boolean),
-        isOpen: profileIsOpen,
-        logo: profileLogo,
-        hours: profileHours
+        name: profileName || '',
+        displayName: profileDisplayName || '',
+        borough: profileBorough ? (profileBorough.includes(', NYC') ? profileBorough : profileBorough + ', NYC') : 'Manhattan, NYC',
+        tags: profileTags ? profileTags.split(',').map(t => t.trim()).filter(Boolean) : [],
+        isOpen: !!profileIsOpen,
+        logo: profileLogo || '',
+        hours: profileHours || ''
       };
       
-      await updateDoc(doc(db, 'users', vendorUser.id), updatedData);
+      // Clean undefined fields that firestore hates
+      Object.keys(updatedData).forEach(key => {
+        if (updatedData[key] === undefined) {
+          delete updatedData[key];
+        }
+      });
+      
+      await setDoc(doc(db, 'users', vendorUser.id), updatedData, { merge: true });
       setVendorUser(prev => ({ ...prev, ...updatedData }));
       alert('Store Profile updated successfully!');
     } catch (err) {
