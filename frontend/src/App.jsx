@@ -1925,6 +1925,36 @@ export default function App() {
     }
   };
 
+  const handleToggleFeaturedVendor = async (vendorId) => {
+    try {
+      const { db, doc, updateDoc } = await import('./firebase');
+      const currentFeatured = vendors.find(v => v.id === vendorId)?.isFeatured || false;
+      const targetState = !currentFeatured;
+
+      // Update in Firestore
+      const updatePromises = vendors.map(async (v) => {
+        const vendorRef = doc(db, 'users', v.id);
+        if (v.id === vendorId) {
+          await updateDoc(vendorRef, { isFeatured: targetState });
+        } else if (v.isFeatured && targetState) {
+          await updateDoc(vendorRef, { isFeatured: false });
+        }
+      });
+      await Promise.all(updatePromises);
+
+      // Update local state
+      setVendors(prev => prev.map(v => ({
+        ...v,
+        isFeatured: v.id === vendorId ? targetState : (targetState ? false : v.isFeatured)
+      })));
+
+      alert(`✅ Featured vendor status updated successfully!`);
+    } catch (err) {
+      console.error("Failed to toggle featured vendor:", err);
+      alert("Failed to toggle featured vendor: " + err.message);
+    }
+  };
+
   const handleDeleteDriver = async (driverId, driverName) => {
     if (!window.confirm(`⚠️ Permanently delete driver "${driverName}"? This cannot be undone.`)) return;
     const BACKEND_URL = window.location.hostname === 'localhost' ? 'http://localhost:5001' : '';
@@ -2815,30 +2845,29 @@ export default function App() {
       setVendorUser(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
       
       // Sync with Shopify via backend
-      const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token');
-      const shopifyConfigStr = localStorage.getItem('curbsides_shopify_config');
+      // Sync with Shopify via backend (fallback to Firestore credentials if local storage empty)
+      const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token') || '';
+      const shopifyConfigStr = localStorage.getItem('curbsides_shopify_config') || '';
       let shopDomain = "";
       try { if (shopifyConfigStr) shopDomain = JSON.parse(shopifyConfigStr).domain; } catch(e){}
 
-      if (shopifyAdminToken && shopDomain) {
-        try {
-          const res = await fetch(`${BACKEND_URL}/api/shopify/create-product`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              shop: shopDomain,
-              admin_token: shopifyAdminToken,
-              title: newMenuName,
-              vendorName: vendorUser.name,
-              borough: vendorUser.borough || 'NYC',
-              foodType: (vendorUser.tags && vendorUser.tags[0]) || "Street Food",
-              price: newMenuPrice.toString()
-            })
-          });
-          if (!res.ok) console.warn("Failed to push product to Shopify via backend API");
-        } catch(e) {
-          console.warn("Error calling shopify product create API", e);
-        }
+      try {
+        const res = await fetch(`${BACKEND_URL}/api/shopify/create-product`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shop: shopDomain || undefined,
+            admin_token: shopifyAdminToken || undefined,
+            title: newMenuName,
+            vendorName: vendorUser.displayName || vendorUser.name,
+            borough: vendorUser.borough || 'NYC',
+            foodType: (vendorUser.tags && vendorUser.tags[0]) || "Street Food",
+            price: newMenuPrice.toString()
+          })
+        });
+        if (!res.ok) console.warn("Failed to push product to Shopify via backend API");
+      } catch(e) {
+        console.warn("Error calling shopify product create API", e);
       }
 
     } catch (err) {
@@ -7496,12 +7525,24 @@ export default function App() {
                                   {vendor.source === 'application' ? 'Profile Sync Pending' : 'Set Pickup Point'}
                                 </button>
                                 {vendor.source !== 'application' && (
-                                  <button
-                                    onClick={() => handleDeleteVendor(vendor.id, vendor.name)}
-                                    className="px-2.5 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer"
-                                  >
-                                    Delete
-                                  </button>
+                                  <>
+                                    <button
+                                      onClick={() => handleToggleFeaturedVendor(vendor.id)}
+                                      className={`px-2.5 py-1 border rounded text-[10px] font-bold uppercase transition-all cursor-pointer font-heading ${
+                                        vendor.isFeatured
+                                          ? 'border-amber-400 bg-amber-400 text-black hover:bg-transparent hover:text-amber-400'
+                                          : 'border-slate-500 bg-transparent text-slate-400 hover:bg-white/10 hover:text-white'
+                                      }`}
+                                    >
+                                      {vendor.isFeatured ? '★ Featured' : '☆ Make Featured'}
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteVendor(vendor.id, vendor.name)}
+                                      className="px-2.5 py-1 border border-rose-500 rounded text-[10px] font-bold uppercase bg-rose-500/10 text-rose-400 hover:bg-rose-500 hover:text-white transition-all cursor-pointer font-heading"
+                                    >
+                                      Delete
+                                    </button>
+                                  </>
                                 )}
                               </td>
                             </tr>
@@ -8088,33 +8129,46 @@ export default function App() {
               </div>
 
               {/* Featured Food Truck Row */}
-              <div className="p-4 sm:p-6 border-b-2 border-white bg-zinc-950/20">
-                <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-bold uppercase text-slate-400 mb-3 sm:mb-4 tracking-wider">
-                  <Sparkles className="w-4 h-4 text-white" />
-                  Featured Vendor
-                </div>
+              {(() => {
+                let featuredVendor = vendors.find(v => v.isFeatured);
+                if (!featuredVendor) {
+                  featuredVendor = vendors.find(v => v.id === 'vendor-korean-taco') || vendors[0];
+                }
+                if (!featuredVendor) return null;
 
-                <div className="omny-card p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                  <div className="space-y-2">
-                    <span className="bg-white text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded inline-block w-max">
-                      Top Pick
-                    </span>
-                    <h3 className="text-lg sm:text-xl font-bold uppercase text-white font-heading">Korean BBQ Taco Truck</h3>
-                    <p className="text-xs text-slate-400">Midtown, NYC &bull; Open Now &bull; Fusion Tacos & Fries</p>
+                return (
+                  <div className="p-4 sm:p-6 border-b-2 border-white bg-zinc-950/20">
+                    <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-bold uppercase text-slate-400 mb-3 sm:mb-4 tracking-wider">
+                      <Sparkles className="w-4 h-4 text-white" />
+                      Featured Vendor
+                    </div>
+
+                    <div className="omny-card p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                      <div className="space-y-2">
+                        <span className="bg-amber-400 text-black font-extrabold text-[9px] uppercase tracking-widest px-1.5 py-0.5 rounded inline-block w-max">
+                          Top Pick
+                        </span>
+                        <h3 className="text-lg sm:text-xl font-bold uppercase text-white font-heading">
+                          {featuredVendor.displayName || featuredVendor.name}
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          {featuredVendor.borough} &bull; {featuredVendor.isOpen ? 'Open Now' : 'Closed'} &bull; {featuredVendor.foodType || 'Local Eats'}
+                        </p>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          handleVendorClick(featuredVendor);
+                        }}
+                        className="px-4 py-2 border-2 border-white rounded-lg bg-white text-black text-xs font-bold uppercase flex items-center gap-1.5 hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
+                      >
+                        Order menu
+                        <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
-
-                  <button
-                    onClick={() => {
-                      const vendor = vendors.find(v => v.id === 'vendor-korean-taco');
-                      if (vendor) handleVendorClick(vendor);
-                    }}
-                    className="px-4 py-2 border-2 border-white rounded-lg bg-white text-black text-xs font-bold uppercase flex items-center gap-1.5 hover:bg-black hover:text-white transition-all cursor-pointer font-heading"
-                  >
-                    Order menu
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
+                );
+              })()}
 
               {/* Search, Filter, and Borough selector */}
               <div className="p-4 sm:p-6 border-b-2 border-white space-y-3 sm:space-y-4">

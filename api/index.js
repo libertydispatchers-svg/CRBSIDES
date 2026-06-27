@@ -1183,6 +1183,20 @@ app.get("/api/auth/shopify/callback", async (req, res) => {
       }
     }
 
+    // Save to Firestore config
+    try {
+      console.log(`[Shopify OAuth] Saving tokens to Firestore config...`);
+      await addDocument("config", "shopify", {
+        shop,
+        admin_token: accessToken,
+        storefront_token: storefrontToken,
+        updatedAt: new Date().toISOString()
+      });
+      console.log(`[Shopify OAuth] Saved successfully.`);
+    } catch (saveErr) {
+      console.error("[Shopify OAuth] Failed to save credentials to Firestore:", saveErr.message);
+    }
+
     // Redirect to frontend root page with token parameters
     res.redirect(`/?shopify_installed=true&shop=${encodeURIComponent(shop)}&admin_token=${encodeURIComponent(accessToken)}&storefront_token=${encodeURIComponent(storefrontToken)}`);
 
@@ -1196,11 +1210,27 @@ app.get("/api/auth/shopify/callback", async (req, res) => {
 app.post("/api/shopify/create-product", async (req, res) => {
   const { shop, admin_token, title, vendorName, borough, foodType, price } = req.body;
 
-  if (!shop || !admin_token || !title || !vendorName) {
+  let finalShop = shop;
+  let finalToken = admin_token;
+
+  if (!finalShop || !finalToken) {
+    try {
+      const shopifyConfig = await getDocument("config", "shopify");
+      if (shopifyConfig) {
+        finalShop = finalShop || shopifyConfig.shop;
+        finalToken = finalToken || shopifyConfig.admin_token;
+        console.log(`[Shopify API] Resolved shopify credentials from Firestore config: ${finalShop}`);
+      }
+    } catch (dbErr) {
+      console.warn("[Shopify API] Failed to load shopify config from Firestore:", dbErr.message);
+    }
+  }
+
+  if (!finalShop || !finalToken || !title || !vendorName) {
     return res.status(400).json({ error: "Missing required parameters: shop, admin_token, title, and vendorName are required." });
   }
 
-  const sanitizedShop = shop.replace(/^https?:\/\//, "").trim();
+  const sanitizedShop = finalShop.replace(/^https?:\/\//, "").trim();
 
   try {
     console.log(`[Shopify API] Creating starter product for vendor "${vendorName}" in "${sanitizedShop}"...`);
@@ -1226,7 +1256,7 @@ app.post("/api/shopify/create-product", async (req, res) => {
       productPayload,
       {
         headers: {
-          "X-Shopify-Access-Token": admin_token,
+          "X-Shopify-Access-Token": finalToken,
           "Content-Type": "application/json"
         }
       }
@@ -1255,7 +1285,7 @@ app.post("/api/shopify/create-product", async (req, res) => {
         collectionPayload,
         {
           headers: {
-            "X-Shopify-Access-Token": admin_token,
+            "X-Shopify-Access-Token": finalToken,
             "Content-Type": "application/json"
           }
         }
