@@ -2946,7 +2946,7 @@ export default function App() {
       setVendorUser(prev => ({ ...prev, items: updatedItems }));
     } catch (err) {
       console.error("Failed to edit menu item:", err);
-      alert("Failed to edit menu item.");
+      alert("Failed to edit menu item: " + err.message);
     }
 
     // Reset edit state
@@ -3003,7 +3003,7 @@ export default function App() {
       alert('Store Profile updated successfully!');
     } catch (err) {
       console.error("Failed to update store profile:", err);
-      alert("Failed to update store profile.");
+      alert("Failed to update store profile: " + err.message);
     }
   };
 
