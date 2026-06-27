@@ -444,7 +444,8 @@ app.post("/api/orders", async (req, res) => {
     return res.status(400).json({ error: "Missing customer details (name, address, email, phone)" });
   }
 
-  const orderId = `curbside-${Math.floor(1000 + Math.random() * 9000)}`;
+  try {
+    const orderId = `curbside-${Math.floor(1000 + Math.random() * 9000)}`;
 
   const distanceMiles = await getRouteDistance(vendorAddress || "Katz's Delicatessen, 205 E Houston St, New York, NY 10002", customerAddress);
   const grossDriverPay = Number((distanceMiles * 2.00).toFixed(2));
@@ -580,14 +581,18 @@ app.post("/api/orders", async (req, res) => {
   }
 
   // Send order receipt email notification
-  await sendOrderReceiptEmail(
-    customerEmail,
-    customerName,
-    orderId,
-    vendorName || "Katz's Delicatessen",
-    totalPrice,
-    trackingLink
-  );
+  try {
+    await sendOrderReceiptEmail(
+      customerEmail,
+      customerName,
+      orderId,
+      vendorName || "Katz's Delicatessen",
+      totalPrice,
+      trackingLink
+    );
+  } catch (emailErr) {
+    console.error("Failed to send receipt email:", emailErr);
+  }
 
   res.status(201).json({
     ...orderDoc,
@@ -595,6 +600,11 @@ app.post("/api/orders", async (req, res) => {
     shipdayStatus,
     trackingLink
   });
+  
+  } catch (err) {
+    console.error("Order creation route crashed:", err);
+    res.status(500).json({ error: "Failed to place order: " + err.message });
+  }
 });
 
 app.get("/api/orders/:id", async (req, res) => {
