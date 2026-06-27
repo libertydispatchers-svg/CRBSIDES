@@ -746,6 +746,11 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  // Request user location on mount
+  useEffect(() => {
+    requestViewerLocation();
+  }, []);
+
   // Pre-populate Sandbox checkout if customer logged in
   useEffect(() => {
     if (customerUser) {
@@ -8157,10 +8162,21 @@ export default function App() {
                             <span className="truncate">{vendor.borough}</span>
                             <span className="text-amber-500 font-bold ml-1">{vendor.rating ? `${vendor.rating.toFixed(1)} ★` : '5.0 ★'}</span>
                           </div>
-                          {fee !== null && (
+                          {fee !== null ? (
                             <div className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
                               Est. Delivery ${fee.toFixed(2)} &bull; {miles.toFixed(1)} mi away
                             </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                requestViewerLocation();
+                              }}
+                              className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider hover:underline text-left mt-0.5 cursor-pointer block bg-transparent border-0 p-0"
+                            >
+                              📍 Enable location to see delivery estimate
+                            </button>
                           )}
                         </div>
                       </div>
