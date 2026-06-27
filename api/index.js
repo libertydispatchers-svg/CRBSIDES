@@ -226,7 +226,7 @@ async function getRouteDistance(origin, destination) {
   if (apiKey) {
     try {
       const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(origin)}&destinations=${encodeURIComponent(destination)}&key=${apiKey}&units=imperial`;
-      const response = await axios.get(url);
+      const response = await axios.get(url, { timeout: 3000 });
       if (response.data && response.data.rows && response.data.rows[0].elements && response.data.rows[0].elements[0].status === "OK") {
         const distanceMiles = response.data.rows[0].elements[0].distance.value * 0.000621371;
         return Number(distanceMiles.toFixed(2));
@@ -562,7 +562,8 @@ app.post("/api/orders", async (req, res) => {
           "Authorization": `Basic ${shipdayApiKey}`,
           "Content-Type": "application/json",
           "Accept": "application/json"
-        }
+        },
+        timeout: 3000
       });
       if (response.data) {
         shipdayOrderId = response.data.orderId;
@@ -1484,7 +1485,8 @@ app.post(["/shopify-order-created", "/webhooks/shopify-order"], async (req, res)
             "Authorization": `Basic ${shipdayApiKey}`,
             "Content-Type": "application/json",
             "Accept": "application/json"
-          }
+          },
+          timeout: 3000
         });
         console.log(`[Shipday] Order ${orderId} successfully dispatched in Shipday.`);
       } catch (err) {
@@ -1544,7 +1546,8 @@ async function sendEmail({ to, subject, html }) {
         headers: {
           "Authorization": `Bearer ${RESEND_API_KEY}`,
           "Content-Type": "application/json"
-        }
+        },
+        timeout: 3000
       }
     );
     console.log(`[Resend] Email successfully sent to ${recipient} (original: ${to}). ID: ${response.data.id}`);
