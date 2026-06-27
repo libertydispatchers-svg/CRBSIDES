@@ -507,7 +507,7 @@ export default function App() {
     let userUnsubscribe = () => {};
     const initAuthWatcher = async () => {
       try {
-        const { auth, db, doc, onSnapshot, collection, query, where, getDocs } = await import('./firebase');
+        const { auth, db, doc, onSnapshot, collection, query, where, getDocs, setDoc, deleteDoc } = await import('./firebase');
         const { onAuthStateChanged } = await import('firebase/auth');
         unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
           if (userUnsubscribe) userUnsubscribe();
@@ -537,6 +537,36 @@ export default function App() {
               }
             }
             if (!profile) return;
+
+            // Document ID Synchronization: if profile.id does not match firebaseUser.uid (e.g. pre-approved record),
+            // move the document to the authenticated uid path to satisfy security rules.
+            if (profile.id !== firebaseUser.uid) {
+              try {
+                console.log(`[Auth Sync] Syncing user document ID ${profile.id} to Auth UID ${firebaseUser.uid}...`);
+                
+                // Copy menu subcollection items to the new UID path
+                const menuSnap = await getDocs(collection(db, 'users', profile.id, 'menu'));
+                const menuPromises = menuSnap.docs.map(async (mDoc) => {
+                  await setDoc(doc(db, 'users', firebaseUser.uid, 'menu', mDoc.id), mDoc.data());
+                  await deleteDoc(doc(db, 'users', profile.id, 'menu', mDoc.id));
+                });
+                await Promise.all(menuPromises);
+
+                // Save main user document
+                const updatedProfileData = { ...profile, id: firebaseUser.uid };
+                const savePayload = { ...updatedProfileData };
+                delete savePayload.id;
+                await setDoc(doc(db, 'users', firebaseUser.uid), savePayload);
+
+                // Delete old document ID
+                await deleteDoc(doc(db, 'users', profile.id));
+                console.log(`[Auth Sync] Sync completed successfully.`);
+                profile = updatedProfileData;
+              } catch (syncErr) {
+                console.error("[Auth Sync] Failed to sync document ID to auth UID:", syncErr);
+              }
+            }
+
             setUserSession(profile);
             
             // Override role for admin email
