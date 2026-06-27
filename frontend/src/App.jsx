@@ -2874,7 +2874,7 @@ export default function App() {
 
     try {
       const { db, doc, setDoc } = await import('./firebase');
-      await setDoc(doc(db, 'users', vendorUser.id, 'menu', newItemId), newItem);
+      await setDoc(doc(db, 'users', vendorUser.id || vendorUser.uid, 'menu', newItemId), newItem);
       // Update local state temporarily for fast UI response
       setVendorUser(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
       
@@ -2924,7 +2924,7 @@ export default function App() {
 
     try {
       const { db, doc, setDoc } = await import('./firebase');
-      await setDoc(doc(db, 'users', vendorUser.id, 'menu', editingItem.id), {
+      await setDoc(doc(db, 'users', vendorUser.id || vendorUser.uid, 'menu', editingItem.id), {
         name: editMenuName,
         description: editMenuDesc,
         price: parseFloat(editMenuPrice),
@@ -2998,7 +2998,7 @@ export default function App() {
         }
       });
       
-      await setDoc(doc(db, 'users', vendorUser.id), updatedData, { merge: true });
+      await setDoc(doc(db, 'users', vendorUser.id || vendorUser.uid), updatedData, { merge: true });
       setVendorUser(prev => ({ ...prev, ...updatedData }));
       alert('Store Profile updated successfully!');
     } catch (err) {
