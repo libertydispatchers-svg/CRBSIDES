@@ -162,6 +162,13 @@ export default function App() {
   const [profileIsOpen, setProfileIsOpen] = useState(true);
   const [profileLogo, setProfileLogo] = useState('');
   const [profileHours, setProfileHours] = useState('');
+  const [hoursPresetMode, setHoursPresetMode] = useState('manual');
+  const [hoursEverydayStart, setHoursEverydayStart] = useState('11:00');
+  const [hoursEverydayEnd, setHoursEverydayEnd] = useState('22:00');
+  const [hoursWeekdayStart, setHoursWeekdayStart] = useState('11:00');
+  const [hoursWeekdayEnd, setHoursWeekdayEnd] = useState('22:00');
+  const [hoursWeekendStart, setHoursWeekendStart] = useState('12:00');
+  const [hoursWeekendEnd, setHoursWeekendEnd] = useState('21:00');
 
   // Customer Reviews Form State
   const [vendorModalTab, setVendorModalTab] = useState('menu'); // 'menu' | 'reviews'
@@ -361,6 +368,27 @@ export default function App() {
   // Orders State
   const [orders, setOrders] = useState([]);
 
+  // Helper to format 24h time to 12h display
+  const formatTime12h = (timeStr) => {
+    if (!timeStr) return '';
+    const [hourStr, minStr] = timeStr.split(':');
+    const hour = parseInt(hourStr, 10);
+    const ampm = hour >= 12 ? 'PM' : 'AM';
+    const displayHour = hour % 12 === 0 ? 12 : hour % 12;
+    return `${displayHour}:${minStr} ${ampm}`;
+  };
+
+  // Generate business hours string when scheduler states change
+  useEffect(() => {
+    if (hoursPresetMode === '24/7') {
+      setProfileHours('Open 24/7');
+    } else if (hoursPresetMode === 'everyday') {
+      setProfileHours(`Everyday ${formatTime12h(hoursEverydayStart)} - ${formatTime12h(hoursEverydayEnd)}`);
+    } else if (hoursPresetMode === 'split') {
+      setProfileHours(`Mon-Fri ${formatTime12h(hoursWeekdayStart)} - ${formatTime12h(hoursWeekdayEnd)}, Sat-Sun ${formatTime12h(hoursWeekendStart)} - ${formatTime12h(hoursWeekendEnd)}`);
+    }
+  }, [hoursPresetMode, hoursEverydayStart, hoursEverydayEnd, hoursWeekdayStart, hoursWeekdayEnd, hoursWeekendStart, hoursWeekendEnd]);
+
   // Synchronize profile forms safely
   useEffect(() => {
     if (vendorUser) {
@@ -370,7 +398,52 @@ export default function App() {
       setProfileTags((vendorUser.tags || []).join(', '));
       setProfileIsOpen(vendorUser.isOpen);
       setProfileLogo(vendorUser.logo || '');
-      setProfileHours(vendorUser.hours || '');
+      
+      const hoursVal = vendorUser.hours || '';
+      setProfileHours(hoursVal);
+      
+      // Auto-detect preset mode based on loaded hours value
+      if (hoursVal === 'Open 24/7') {
+        setHoursPresetMode('24/7');
+      } else if (hoursVal.startsWith('Everyday ')) {
+        setHoursPresetMode('everyday');
+        const timesMatch = hoursVal.match(/Everyday\s+(\d+:\d+\s+[AP]M)\s*-\s*(\d+:\d+\s+[AP]M)/i);
+        if (timesMatch) {
+          const to24h = (tStr) => {
+            const match = tStr.match(/(\d+):(\d+)\s+([AP]M)/i);
+            if (!match) return '11:00';
+            let hrs = parseInt(match[1], 10);
+            const mins = match[2];
+            const pm = match[3].toUpperCase() === 'PM';
+            if (pm && hrs < 12) hrs += 12;
+            if (!pm && hrs === 12) hrs = 0;
+            return `${String(hrs).padStart(2, '0')}:${mins}`;
+          };
+          setHoursEverydayStart(to24h(timesMatch[1]));
+          setHoursEverydayEnd(to24h(timesMatch[2]));
+        }
+      } else if (hoursVal.includes('Mon-Fri') && hoursVal.includes('Sat-Sun')) {
+        setHoursPresetMode('split');
+        const splitMatch = hoursVal.match(/Mon-Fri\s+(\d+:\d+\s+[AP]M)\s*-\s*(\d+:\d+\s+[AP]M),\s*Sat-Sun\s+(\d+:\d+\s+[AP]M)\s*-\s*(\d+:\d+\s+[AP]M)/i);
+        if (splitMatch) {
+          const to24h = (tStr) => {
+            const match = tStr.match(/(\d+):(\d+)\s+([AP]M)/i);
+            if (!match) return '11:00';
+            let hrs = parseInt(match[1], 10);
+            const mins = match[2];
+            const pm = match[3].toUpperCase() === 'PM';
+            if (pm && hrs < 12) hrs += 12;
+            if (!pm && hrs === 12) hrs = 0;
+            return `${String(hrs).padStart(2, '0')}:${mins}`;
+          };
+          setHoursWeekdayStart(to24h(splitMatch[1]));
+          setHoursWeekdayEnd(to24h(splitMatch[2]));
+          setHoursWeekendStart(to24h(splitMatch[3]));
+          setHoursWeekendEnd(to24h(splitMatch[4]));
+        }
+      } else {
+        setHoursPresetMode('manual');
+      }
     }
   }, [vendorActiveSubTab, vendorUser]);
 
@@ -5477,15 +5550,124 @@ export default function App() {
                           />
                         </div>
 
-                        <div>
-                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Business Hours</label>
-                          <input
-                            type="text"
-                            value={profileHours}
-                            onChange={(e) => setProfileHours(e.target.value)}
-                            className="w-full px-4 py-2.5 rounded-lg omny-input text-xs text-white"
-                            placeholder="e.g. Mon-Sat 11am-10pm, Sun Closed"
-                          />
+                        <div className="space-y-3 p-4 border border-white/20 rounded-xl bg-zinc-950">
+                          <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest">Business Hours Settings</label>
+                          
+                          {/* Preset Mode Buttons */}
+                          <div className="flex flex-wrap gap-2">
+                            {[
+                              { id: 'manual', label: 'Manual' },
+                              { id: '24/7', label: '24/7' },
+                              { id: 'everyday', label: 'Everyday' },
+                              { id: 'split', label: 'Mon-Fri / Sat-Sun' }
+                            ].map(preset => (
+                              <button
+                                key={preset.id}
+                                type="button"
+                                onClick={() => setHoursPresetMode(preset.id)}
+                                className={`px-2.5 py-1 text-[10px] font-bold uppercase rounded border transition-all cursor-pointer ${
+                                  hoursPresetMode === preset.id
+                                    ? 'bg-white text-black border-white'
+                                    : 'bg-black text-slate-400 border-white/20 hover:border-white hover:text-white'
+                                }`}
+                              >
+                                {preset.label}
+                              </button>
+                            ))}
+                          </div>
+
+                          {/* Preset Forms */}
+                          {hoursPresetMode === 'everyday' && (
+                            <div className="grid grid-cols-2 gap-3 pt-1">
+                              <div>
+                                <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Open Time</label>
+                                <input
+                                  type="time"
+                                  value={hoursEverydayStart}
+                                  onChange={(e) => setHoursEverydayStart(e.target.value)}
+                                  className="w-full px-3 py-1.5 rounded bg-black border border-white/20 text-xs text-white"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Close Time</label>
+                                <input
+                                  type="time"
+                                  value={hoursEverydayEnd}
+                                  onChange={(e) => setHoursEverydayEnd(e.target.value)}
+                                  className="w-full px-3 py-1.5 rounded bg-black border border-white/20 text-xs text-white"
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {hoursPresetMode === 'split' && (
+                            <div className="space-y-2 pt-1">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Weekday Open (Mon-Fri)</label>
+                                  <input
+                                    type="time"
+                                    value={hoursWeekdayStart}
+                                    onChange={(e) => setHoursWeekdayStart(e.target.value)}
+                                    className="w-full px-3 py-1.5 rounded bg-black border border-white/20 text-xs text-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Weekday Close (Mon-Fri)</label>
+                                  <input
+                                    type="time"
+                                    value={hoursWeekdayEnd}
+                                    onChange={(e) => setHoursWeekdayEnd(e.target.value)}
+                                    className="w-full px-3 py-1.5 rounded bg-black border border-white/20 text-xs text-white"
+                                  />
+                                </div>
+                              </div>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Weekend Open (Sat-Sun)</label>
+                                  <input
+                                    type="time"
+                                    value={hoursWeekendStart}
+                                    onChange={(e) => setHoursWeekendStart(e.target.value)}
+                                    className="w-full px-3 py-1.5 rounded bg-black border border-white/20 text-xs text-white"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">Weekend Close (Sat-Sun)</label>
+                                  <input
+                                    type="time"
+                                    value={hoursWeekendEnd}
+                                    onChange={(e) => setHoursWeekendEnd(e.target.value)}
+                                    className="w-full px-3 py-1.5 rounded bg-black border border-white/20 text-xs text-white"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Raw/Generated Value Input */}
+                          <div className="pt-1">
+                            <label className="block text-[9px] font-bold text-slate-500 uppercase tracking-wider mb-1">
+                              {hoursPresetMode === 'manual' ? 'Hours Value (Enter custom hours description)' : 'Preview Generated Hours Value'}
+                            </label>
+                            <input
+                              type="text"
+                              value={profileHours}
+                              onChange={(e) => {
+                                setProfileHours(e.target.value);
+                                if (hoursPresetMode !== 'manual') {
+                                  setHoursPresetMode('manual');
+                                }
+                              }}
+                              className="w-full px-3 py-2 rounded bg-black border border-white/20 text-xs text-white"
+                              placeholder="e.g. Mon-Sat 11am-10pm, Sun Closed"
+                            />
+                            {hoursPresetMode !== 'manual' && (
+                              <p className="text-[10px] text-slate-500 mt-1 italic">
+                                Modifying the text directly will switch you to "Manual" mode.
+                              </p>
+                            )}
+                          </div>
                         </div>
 
                         <div className="flex items-center gap-3 pt-2">
