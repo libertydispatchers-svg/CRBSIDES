@@ -2905,12 +2905,25 @@ export default function App() {
       // Update local state temporarily for fast UI response
       setVendorUser(prev => ({ ...prev, items: [...(prev.items || []), newItem] }));
       
-      // Sync with Shopify via backend
       // Sync with Shopify via backend (fallback to Firestore credentials if local storage empty)
-      const shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token') || '';
-      const shopifyConfigStr = localStorage.getItem('curbsides_shopify_config') || '';
+      let shopifyAdminToken = localStorage.getItem('curbsides_shopify_admin_token') || '';
       let shopDomain = "";
+      const shopifyConfigStr = localStorage.getItem('curbsides_shopify_config') || '';
       try { if (shopifyConfigStr) shopDomain = JSON.parse(shopifyConfigStr).domain; } catch(e){}
+      
+      if (!shopifyAdminToken || !shopDomain) {
+        try {
+          const { db, doc, getDoc } = await import('./firebase');
+          const configDoc = await getDoc(doc(db, 'config', 'shopify'));
+          if (configDoc.exists()) {
+            const data = configDoc.data();
+            if (data.admin_token) shopifyAdminToken = data.admin_token;
+            if (data.shop) shopDomain = data.shop;
+          }
+        } catch(e) {
+          console.warn("Failed to fetch shopify config from firestore", e);
+        }
+      }
 
       try {
         const res = await fetch(`${BACKEND_URL}/api/shopify/create-product`, {
