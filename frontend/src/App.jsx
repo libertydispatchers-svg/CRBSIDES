@@ -931,7 +931,10 @@ export default function App() {
       else if (path === '/admin') setActiveTab('admin');
       else if (path === '/vendor-portal') setActiveTab('vendor-portal');
       else if (path === '/driver-portal') setActiveTab('driver-portal');
-      else if (path === '/track') setActiveTab('track');
+      else if (path === '/track') {
+        setActiveTab('account');
+        setCustomerActiveSubTab('track');
+      }
       else if (path === '/account') setActiveTab('account');
       else setActiveTab('directory');
     };
@@ -1634,7 +1637,8 @@ export default function App() {
         localStorage.setItem('last_placed_order_id', data.id);
         setSearchedOrder(data);
         setTrackingOrderId(data.id);
-        setActiveTab('track');
+        setActiveTab('account');
+        setCustomerActiveSubTab('track');
       } else {
         setCheckoutError(data.error || "Failed to place order.");
       }
@@ -5549,16 +5553,12 @@ export default function App() {
                           </thead>
                           <tbody>
                             {(() => {
-                              const cleanUser = vendorUser.name.toLowerCase()
-                                .replace('truck', '')
-                                .replace('spot', '')
-                                .replace('guy', '')
-                                .replace('wheels', '')
-                                .trim();
+                              const cleanUser = vendorUser.name.toLowerCase().trim();
+                              const cleanDisplayName = (vendorUser.displayName || '').toLowerCase().trim();
                               
                               const vendorOrdersList = orders.filter(o => {
-                                const addr = (o.vendorAddress || '').toLowerCase();
-                                return addr.includes(cleanUser);
+                                const orderVendorName = (o.vendorName || '').toLowerCase().trim();
+                                return orderVendorName === cleanUser || orderVendorName === cleanDisplayName;
                               });
 
                               if (vendorOrdersList.length === 0) {
