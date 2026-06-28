@@ -57,7 +57,10 @@ const firestore = getFirestore();
 // REST Database operations mapped to Admin SDK
 async function getCollection(collectionName) {
   try {
-    const snapshot = await firestore.collection(collectionName).get();
+    const snapshot = await Promise.race([
+      firestore.collection(collectionName).get(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore timeout")), 2000))
+    ]);
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
   } catch (err) {
     console.error(`[Database] Error getting collection ${collectionName}:`, err.message);
@@ -67,7 +70,10 @@ async function getCollection(collectionName) {
 
 async function getDocument(collectionName, docId) {
   try {
-    const doc = await firestore.collection(collectionName).doc(docId).get();
+    const doc = await Promise.race([
+      firestore.collection(collectionName).doc(docId).get(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore timeout")), 2000))
+    ]);
     if (!doc.exists) return null;
     return { id: doc.id, ...doc.data() };
   } catch (err) {
@@ -78,7 +84,10 @@ async function getDocument(collectionName, docId) {
 
 async function addDocument(collectionName, docId, data) {
   try {
-    await firestore.collection(collectionName).doc(docId).set(data);
+    await Promise.race([
+      firestore.collection(collectionName).doc(docId).set(data),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore timeout")), 2000))
+    ]);
     // Update local memory fallback
     if (db[collectionName]) {
       const existingIdx = db[collectionName].findIndex(item => item.id === docId);
@@ -102,7 +111,10 @@ async function addDocument(collectionName, docId, data) {
 
 async function updateDocument(collectionName, docId, data) {
   try {
-    await firestore.collection(collectionName).doc(docId).update(data);
+    await Promise.race([
+      firestore.collection(collectionName).doc(docId).update(data),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore timeout")), 2000))
+    ]);
     if (db[collectionName]) {
       const idx = db[collectionName].findIndex(item => item.id === docId);
       if (idx !== -1) {
@@ -125,7 +137,10 @@ async function updateDocument(collectionName, docId, data) {
 
 async function deleteDocument(collectionName, docId) {
   try {
-    await firestore.collection(collectionName).doc(docId).delete();
+    await Promise.race([
+      firestore.collection(collectionName).doc(docId).delete(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("Firestore timeout")), 2000))
+    ]);
     if (db[collectionName]) {
       db[collectionName] = db[collectionName].filter(item => item.id !== docId);
     }
