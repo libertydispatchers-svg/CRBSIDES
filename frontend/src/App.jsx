@@ -2741,6 +2741,12 @@ export default function App() {
   };
 
   const handleOpenSandboxCheckout = () => {
+    if (!customerUser) {
+      alert("Please log in or create a free account to place an order and track your delivery.");
+      setIsCartOpen(false);
+      setIsCustomerLoginOpen(true);
+      return;
+    }
     setIsCartOpen(false);
     setShowSandboxCheckout(true);
     setCheckoutError('');
